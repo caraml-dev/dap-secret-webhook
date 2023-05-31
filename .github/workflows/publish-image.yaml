@@ -42,6 +42,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Add SHORT_SHA env property with commit short sha
+        run: echo "GITHUB_SHA_SHORT=`echo ${GITHUB_SHA} | cut -c1-8`" >> $GITHUB_ENV
+
       - name: Log in to the Container registry
         uses: docker/login-action@v1
         with:
@@ -55,6 +58,7 @@ jobs:
           DOCKER_REGISTRY: ghcr.io/${{ github.repository }}
         run: |
           set -o pipefail
-          IMAGE_TAG=${GITHUB_REF#refs/heads/}-${GITHUB_SHA}
+          GITHUB_SHA_SHORT=`echo ${GITHUB_SHA} | cut -c1-8`
+          IMAGE_TAG="${{ env.DOCKER_REGISTRY }}/caraml-dev/dap-secret-webhook/${GITHUB_REF#refs/heads/}:${GITHUB_SHA_SHORT}"
           docker build . -t ${IMAGE_TAG}
 #          docker push ${IMAGE_TAG}
