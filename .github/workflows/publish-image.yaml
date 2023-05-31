@@ -1,4 +1,4 @@
-name: webhook release
+name: CI
 
 on:
   # Automatically run CI on Release and Pre-Release tags and main branch
