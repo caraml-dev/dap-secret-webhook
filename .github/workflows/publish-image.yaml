@@ -1,12 +1,12 @@
-name: CI
+name: Build and Publish Image
 
 on:
   # Automatically run CI on Release and Pre-Release tags and main branch
   # (only if there are changes to relevant paths)
   push:
-    tags:
-    branches:
-      - main
+#    tags:
+#    branches:
+#      - main
 
   # To make it possible to trigger e2e CI workflow for any arbitrary git ref
   workflow_dispatch:
