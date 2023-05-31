@@ -55,10 +55,18 @@ jobs:
       - name: Build Docker Image
         id: build-image
         env:
-          DOCKER_REGISTRY: ghcr.io/${{ github.repository }}
+          DOCKER_REGISTRY: ghcr.io
         run: |
           set -o pipefail
-          GITHUB_SHA_SHORT=`echo ${GITHUB_SHA} | cut -c1-8`
-          IMAGE_TAG="${{ env.DOCKER_REGISTRY }}/${GITHUB_REF#refs/heads/}:${GITHUB_SHA_SHORT}"
+          
+          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+          [ "$VERSION" == "main" ] && VERSION=$(git describe --tags --always --first-parent)
+          # Strip "v" prefix
+          [[ "${VERSION}" == "v"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
+          # If it's pull request the version string is prefixed by 0.0.0-
+          [ ${{ github.event_name}} == "pull_request" ] && VERSION="${{ github.event.pull_request.head.sha }}"
+          
+          IMAGE_TAG="${{ env.DOCKER_REGISTRY }}/${{ github.repository }}:${VERSION}"
+          echo "Building image with tag ${IMAGE_TAG}"
           docker build . -t ${IMAGE_TAG}
           docker push ${IMAGE_TAG}
