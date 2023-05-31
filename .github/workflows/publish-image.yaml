@@ -56,6 +56,6 @@ jobs:
         run: |
           set -o pipefail
           TAG=$(git describe --tags --always --first-parent)
-          IMAGE_TAG="${{ env.DOCKER_REGISTRY }}/caraml-dev/dap-secret-webhook:${{ TAG }}"
+          IMAGE_TAG="${{ env.DOCKER_REGISTRY }}/caraml-dev/dap-secret-webhook:${{ env.TAG }}"
           docker build . -t ${IMAGE_TAG}
 #          docker push ${IMAGE_TAG}
