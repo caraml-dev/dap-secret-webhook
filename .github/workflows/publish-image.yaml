@@ -59,6 +59,6 @@ jobs:
         run: |
           set -o pipefail
           GITHUB_SHA_SHORT=`echo ${GITHUB_SHA} | cut -c1-8`
-          IMAGE_TAG="${{ env.DOCKER_REGISTRY }}/caraml-dev/dap-secret-webhook/${GITHUB_REF#refs/heads/}:${GITHUB_SHA_SHORT}"
+          IMAGE_TAG="${{ env.DOCKER_REGISTRY }}/${GITHUB_REF#refs/heads/}:${GITHUB_SHA_SHORT}"
           docker build . -t ${IMAGE_TAG}
-#          docker push ${IMAGE_TAG}
+          docker push ${IMAGE_TAG}
