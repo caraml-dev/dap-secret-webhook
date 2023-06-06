@@ -4,42 +4,39 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
+	"os"
 
-	"k8s.io/apimachinery/pkg/runtime"
-
-	"github.com/antihax/optional"
 	"github.com/flyteorg/flyteidl/gen/pb-go/flyteidl/core"
 	secretUtils "github.com/flyteorg/flyteplugins/go/tasks/pluginmachinery/utils/secrets"
 	flytewebhook "github.com/flyteorg/flytepropeller/pkg/webhook"
 
 	v1 "k8s.io/api/admission/v1"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	k8errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	mlp "github.com/caraml-dev/mlp/api/client"
+	"github.com/caraml-dev/dap-secret-webhook/client"
+	"github.com/caraml-dev/dap-secret-webhook/config"
 	"github.com/caraml-dev/mlp/api/log"
 )
 
-const (
-	mlpQueryTimeoutSeconds = 30
-)
-
-type secretInjector struct {
-	k8sClientSet *kubernetes.Clientset
-	mlpClient    *mlp.APIClient
+type DAPWebhook struct {
+	k8sClientSet kubernetes.Interface
+	mlpClient    client.MLPClient
 	decoder      runtime.Decoder
 }
 
-func NewSecretInjector(
-	k8sClientSet *kubernetes.Clientset,
-	mlpClient *mlp.APIClient,
+func NewDAPWebhook(
+	k8sClientSet kubernetes.Interface,
+	mlpClient client.MLPClient,
 	decoder runtime.Decoder,
-) secretInjector {
-	return secretInjector{
+) DAPWebhook {
+	return DAPWebhook{
 		k8sClientSet: k8sClientSet,
 		mlpClient:    mlpClient,
 		decoder:      decoder,
@@ -59,7 +56,7 @@ however the env var value is tweak to read from the above created secret
 
 Flyte Secret Group is ignored and only key is used
 */
-func (pm *secretInjector) Mutate(ar v1.AdmissionReview) *v1.AdmissionResponse {
+func (pm *DAPWebhook) Mutate(ar v1.AdmissionReview) *v1.AdmissionResponse {
 
 	pod := &corev1.Pod{}
 	var admissionResponse *v1.AdmissionResponse
@@ -98,14 +95,14 @@ func (pm *secretInjector) Mutate(ar v1.AdmissionReview) *v1.AdmissionResponse {
 		if err != nil {
 			return toV1AdmissionResponse(err)
 		}
-		log.Errorf("fail to handle request, error: %v", string(jsonData))
+		log.Errorf("admission err response: %v", string(jsonData))
 	}
 
 	return admissionResponse
 }
 
 // mutatePodAndCreateSecret inject flyte secrets to the pod as env var, which value are retrieved from mlp client
-func (pm *secretInjector) mutatePodAndCreateSecret(ar v1.AdmissionReview, pod *corev1.Pod) *v1.AdmissionResponse {
+func (pm *DAPWebhook) mutatePodAndCreateSecret(ar v1.AdmissionReview, pod *corev1.Pod) *v1.AdmissionResponse {
 	// get Flyte Secrets from annotation that are injected by Flyte Propeller
 	secrets, err := secretUtils.UnmarshalStringMapToSecrets(pod.GetAnnotations())
 	if err != nil {
@@ -122,16 +119,6 @@ func (pm *secretInjector) mutatePodAndCreateSecret(ar v1.AdmissionReview, pod *c
 		Type: corev1.SecretTypeOpaque,
 	}
 
-	mlpProject, err := getMLPProject(pm.mlpClient, pod.Namespace)
-	if err != nil {
-		return toV1AdmissionResponse(err)
-	}
-
-	mlpSecrets, err := getMLPSecrets(pm.mlpClient, mlpProject.ID)
-	if err != nil {
-		return toV1AdmissionResponse(err)
-	}
-
 	// The k8 secret will always be created with a unique id and deleted after
 	// Flyte Secret 'Key' is the MLP Secret API "Name"
 	for _, secret := range secrets {
@@ -141,12 +128,11 @@ func (pm *secretInjector) mutatePodAndCreateSecret(ar v1.AdmissionReview, pod *c
 			return toV1AdmissionResponse(err)
 		}
 
-		secretData, err := getMLPSecretValue(mlpSecrets, secret.Key)
+		secretData, err := pm.mlpClient.GetMLPSecretValue(pod.Namespace, secret.Key)
 		if err != nil {
 			return toV1AdmissionResponse(err)
 		}
 		k8secret.Data[secret.Key] = []byte(secretData)
-
 	}
 
 	err = createK8Secret(pm.k8sClientSet, k8secret)
@@ -169,7 +155,7 @@ func (pm *secretInjector) mutatePodAndCreateSecret(ar v1.AdmissionReview, pod *c
 }
 
 // deleteSecret deletes the secret that was created along with the pod. No modification to pod is required
-func (pm *secretInjector) deleteSecret(_ v1.AdmissionReview, pod *corev1.Pod) *v1.AdmissionResponse {
+func (pm *DAPWebhook) deleteSecret(_ v1.AdmissionReview, pod *corev1.Pod) *v1.AdmissionResponse {
 	// the secrets are created with podName in the same namespace
 	if err := deleteK8Secret(pm.k8sClientSet, pod.Namespace, pod.Name); err != nil {
 		return toV1AdmissionResponse(err)
@@ -190,9 +176,9 @@ func toV1AdmissionResponse(err error) *v1.AdmissionResponse {
 // of env var for the secrets to be loaded into FlyteContext. Modification is done only to the "ValueFrom" of the
 // env var, so that it reads
 func injectFlyteSecretEnvVar(secret *core.Secret, p *corev1.Pod) (newP *corev1.Pod, err error) {
-	// secret is expected to be empty
+	// secret group is expected to be empty
 	if len(secret.Key) == 0 {
-		return nil, fmt.Errorf("k8s Secrets Webhook require key to be set. "+
+		return nil, fmt.Errorf("webhook require secretkey to be set. "+
 			"Secret: [%v]", secret)
 	}
 
@@ -222,58 +208,8 @@ func injectFlyteSecretEnvVar(secret *core.Secret, p *corev1.Pod) (newP *corev1.P
 	return p, nil
 }
 
-func getMLPProject(client *mlp.APIClient, namespace string) (*mlp.Project, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), mlpQueryTimeoutSeconds*time.Second)
-	defer cancel()
-
-	var options *mlp.ProjectApiV1ProjectsGetOpts
-	if len(namespace) > 0 {
-		options = &mlp.ProjectApiV1ProjectsGetOpts{
-			Name: optional.NewString(namespace),
-		}
-	}
-	projects, resp, err := client.ProjectApi.V1ProjectsGet(ctx, options)
-	if err != nil {
-		return nil, err
-	}
-	if resp != nil && resp.Body != nil {
-		defer resp.Body.Close()
-	}
-
-	for _, project := range projects {
-		if project.Name == namespace {
-			return &project, nil
-		}
-	}
-	return nil, fmt.Errorf("cannot find project from mlp client")
-
-}
-
-func getMLPSecrets(client *mlp.APIClient, projectId int32) ([]mlp.Secret, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), mlpQueryTimeoutSeconds*time.Second)
-	defer cancel()
-
-	secrets, resp, err := client.SecretApi.V1ProjectsProjectIdSecretsGet(ctx, projectId)
-	if err != nil {
-		return nil, err
-	}
-	if resp != nil && resp.Body != nil {
-		defer resp.Body.Close()
-	}
-	return secrets, nil
-}
-
-func getMLPSecretValue(secrets []mlp.Secret, name string) (string, error) {
-	for _, mlpSecret := range secrets {
-		if mlpSecret.Name == name {
-			return mlpSecret.Data, nil
-		}
-	}
-	return "", fmt.Errorf("cannot find secret value from mlp")
-}
-
 // createK8Secret create the secret if it doesn't exist, else it does nothing
-func createK8Secret(clientSet *kubernetes.Clientset, k8secret *corev1.Secret) error {
+func createK8Secret(clientSet kubernetes.Interface, k8secret *corev1.Secret) error {
 	_, err := clientSet.CoreV1().Secrets(k8secret.Namespace).Get(context.Background(), k8secret.Name, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -289,7 +225,7 @@ func createK8Secret(clientSet *kubernetes.Clientset, k8secret *corev1.Secret) er
 }
 
 // deleteK8Secret deletes the secret if it exists, else it does nothing
-func deleteK8Secret(clientSet *kubernetes.Clientset, namespace string, secretName string) error {
+func deleteK8Secret(clientSet kubernetes.Interface, namespace string, secretName string) error {
 	_, err := clientSet.CoreV1().Secrets(namespace).Get(context.Background(), secretName, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -302,5 +238,101 @@ func deleteK8Secret(clientSet *kubernetes.Clientset, namespace string, secretNam
 	if err != nil {
 		return fmt.Errorf("failed to delete mlpSecret: %v", err)
 	}
+	return nil
+}
+
+func generateMutatingWebhookConfig(webhookConfig config.WebhookConfig, caCertFilePath string) (*admissionregistrationv1.MutatingWebhookConfiguration, error) {
+	caBytes, err := os.ReadFile(caCertFilePath)
+	if err != nil {
+		return nil, err
+	}
+	fail := admissionregistrationv1.Fail
+	sideEffects := admissionregistrationv1.SideEffectClassNoneOnDryRun
+
+	mutateConfig := &admissionregistrationv1.MutatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      webhookConfig.Name,
+			Namespace: webhookConfig.Namespace,
+			Labels: map[string]string{
+				"app": webhookConfig.Name,
+			},
+		},
+		Webhooks: []admissionregistrationv1.MutatingWebhook{
+			{
+				// needs to be a valid dns
+				Name: webhookConfig.WebhookName,
+				ClientConfig: admissionregistrationv1.WebhookClientConfig{
+					CABundle: caBytes, // CA bundle created earlier
+					Service: &admissionregistrationv1.ServiceReference{
+						Name:      webhookConfig.ServiceName,
+						Namespace: webhookConfig.ServiceNamespace,
+						Path:      &webhookConfig.MutatePath,
+						Port:      &webhookConfig.ServicePort,
+					},
+				},
+				Rules: []admissionregistrationv1.RuleWithOperations{
+					{
+						Operations: []admissionregistrationv1.OperationType{
+							admissionregistrationv1.Create,
+							admissionregistrationv1.Delete,
+						},
+						Rule: admissionregistrationv1.Rule{
+							APIGroups:   []string{""},
+							APIVersions: []string{"v1"},
+							Resources:   []string{"pods"},
+						},
+					},
+				},
+				FailurePolicy: &fail,
+				SideEffects:   &sideEffects,
+				AdmissionReviewVersions: []string{
+					"v1",
+				},
+				ObjectSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						secretUtils.PodLabel: secretUtils.PodLabelValue,
+					},
+				},
+			}},
+	}
+
+	return mutateConfig, nil
+}
+
+// CreateOrUpdateMutatingWebhookConfig will create/update the MutatingWebhookConfiguration.
+// It will read the CA file, so if there are any update to the bundle, the CA will be updated
+func CreateOrUpdateMutatingWebhookConfig(k8sClient kubernetes.Interface, webhookConfig config.WebhookConfig, caCertFilePath string) error {
+
+	mutateConfig, err := generateMutatingWebhookConfig(webhookConfig, caCertFilePath)
+	if err != nil {
+		return err
+	}
+
+	webhookClient := k8sClient.AdmissionregistrationV1().MutatingWebhookConfigurations()
+	ctx := context.Background()
+
+	log.Infof("Creating MutatingWebhookConfiguration")
+	_, err = webhookClient.Create(ctx, mutateConfig, metav1.CreateOptions{})
+
+	if err != nil && k8errors.IsAlreadyExists(err) {
+		log.Infof("Failed to create MutatingWebhookConfiguration. Will attempt to update. Error: %v", err)
+		obj, getErr := webhookClient.Get(ctx, mutateConfig.Name, metav1.GetOptions{})
+		if getErr != nil {
+			log.Infof("Failed to get MutatingWebhookConfiguration. Error: %v", getErr)
+			return err
+		}
+
+		obj.Webhooks = mutateConfig.Webhooks
+		_, err = webhookClient.Update(ctx, obj, metav1.UpdateOptions{})
+		if err != nil {
+			log.Infof("Failed to update existing mutating webhook config. Error: %v", err)
+			return err
+		}
+	} else if err != nil {
+		log.Infof("Failed to create MutatingWebhookConfiguration. Error: %v", err)
+		return err
+	}
+
+	log.Infof("MutatingWebhookConfiguration configured")
 	return nil
 }

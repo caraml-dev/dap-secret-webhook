@@ -20,17 +20,22 @@ type TLSConfig struct {
 }
 
 // WebhookConfig holds the config for the MutatingWebhookConfiguration to be created
+// The default assume dap-secret-webhook name and flyte namespace for the service, webhook server and config
 type WebhookConfig struct {
 	// Name of the MutatingWebhookConfiguration resource
 	Name string `split_words:"true" default:"dap-secret-webhook"`
 	// Namespace to be deployed, only one config is required per cluster
 	Namespace string `split_words:"true" default:"flyte"`
+	// WebhookName is the name of the webhook to call. Needs to be qualified name
+	WebhookName string `split_words:"true" default:"dap-secret-webhook.flyte.svc.cluster.local"`
 	// ServiceName is the name of the service for the webhook to call when a request fulfill the rules
 	ServiceName string `split_words:"true" default:"dap-secret-webhook"`
 	// ServiceNamespace is the namespace of the service deployed in cluster
 	ServiceNamespace string `split_words:"true" default:"flyte"`
-	// ServiceName is the name of the service for the webhook to call when a request fulfill the rules
-	ServiceEndpoint string `split_words:"true" default:"dap-secret-webhook.flyte.svc.cluster.local"`
+	// ServicePort is the port of the service
+	ServicePort int32 `split_words:"true" default:"443"`
+	// MutatePath is the endpoint of the service to call for mutate function
+	MutatePath string `split_words:"true" default:"/mutate"`
 }
 
 type MLPConfig struct {

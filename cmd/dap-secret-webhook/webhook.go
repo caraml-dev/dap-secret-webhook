@@ -13,20 +13,17 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/flyteorg/flyteplugins/go/tasks/pluginmachinery/utils/secrets"
-	"github.com/flyteorg/flytestdlib/logger"
+	"github.com/caraml-dev/dap-secret-webhook/client"
+	"github.com/caraml-dev/dap-secret-webhook/webhook"
+
 	"github.com/spf13/cobra"
 
 	"github.com/caraml-dev/dap-secret-webhook/config"
-	"github.com/caraml-dev/dap-secret-webhook/pkg/webhook"
 	mlp "github.com/caraml-dev/mlp/api/client"
 	"github.com/caraml-dev/mlp/api/log"
 	"github.com/caraml-dev/mlp/api/pkg/auth"
 
 	v1 "k8s.io/api/admission/v1"
-	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
-	k8errors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -35,16 +32,10 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-const (
-	port              = 443
-	mutateDefaultPath = "/mutate"
-)
-
 var CmdWebhook = &cobra.Command{
 	Use:   "webhook",
 	Short: "Starts a HTTP server, which run DAP Secret Webhook",
 	Long:  `Starts a HTTP server, which run DAP Secret Webhook. This will attach secret to Flyte Pod from MLP API`,
-	Args:  cobra.MaximumNArgs(0),
 	Run:   run,
 }
 
@@ -85,7 +76,7 @@ func initK8Client(incluster bool) (*kubernetes.Clientset, error) {
 	return clientset, nil
 }
 
-func initMLPClient(mlpApiHost string) *mlp.APIClient {
+func initMLPClient(mlpApiHost string) client.MLPClient {
 	httpClient := http.DefaultClient
 
 	googleClient, err := auth.InitGoogleClient(context.Background())
@@ -98,7 +89,9 @@ func initMLPClient(mlpApiHost string) *mlp.APIClient {
 	cfg.BasePath = mlpApiHost
 	cfg.HTTPClient = httpClient
 
-	return mlp.NewAPIClient(cfg)
+	return &client.APIClient{
+		APIClient: *mlp.NewAPIClient(cfg),
+	}
 }
 
 // admitV1Func handles a v1 admission
@@ -163,12 +156,12 @@ func serve(w http.ResponseWriter, r *http.Request, admit admitV1Func) {
 }
 
 func serveMutate(k8sClient *kubernetes.Clientset,
-	mlpClient *mlp.APIClient) func(w http.ResponseWriter, r *http.Request) {
+	mlpClient client.MLPClient) func(w http.ResponseWriter, r *http.Request) {
 
-	secretInjector := webhook.NewSecretInjector(k8sClient, mlpClient, codecs.UniversalDeserializer())
+	dapWebhook := webhook.NewDAPWebhook(k8sClient, mlpClient, codecs.UniversalDeserializer())
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		serve(w, r, secretInjector.Mutate)
+		serve(w, r, dapWebhook.Mutate)
 	}
 }
 
@@ -195,14 +188,14 @@ func run(cmd *cobra.Command, args []string) {
 	}
 	mlpClient := initMLPClient(cfg.MLPConfig.APIHost)
 
-	err = createOrUpdateMutatingWebhookConfig(k8sClient, cfg.WebhookConfig, cfg.TLSConfig.CaCertFile)
+	err = webhook.CreateOrUpdateMutatingWebhookConfig(k8sClient, cfg.WebhookConfig, cfg.TLSConfig.CaCertFile)
 	if err != nil {
 		panic(err)
 	}
 
-	http.HandleFunc(mutateDefaultPath, serveMutate(k8sClient, mlpClient))
+	http.HandleFunc(cfg.WebhookConfig.MutatePath, serveMutate(k8sClient, mlpClient))
 	server := &http.Server{
-		Addr:      fmt.Sprintf(":%d", port),
+		Addr:      fmt.Sprintf(":%d", cfg.WebhookConfig.ServicePort),
 		TLSConfig: configTLS(cfg.TLSConfig.ServerCertFile, cfg.TLSConfig.ServerKeyFile),
 	}
 	log.Infof("listening")
@@ -210,92 +203,4 @@ func run(cmd *cobra.Command, args []string) {
 	if err != nil {
 		panic(err)
 	}
-}
-
-// createOrUpdateMutatingWebhookConfig will create/update the MutatingWebhookConfiguration.
-// It will read the CA file, so if there are any update to the bundle, the CA will be updated
-func createOrUpdateMutatingWebhookConfig(k8sClient *kubernetes.Clientset, webhookConfig config.WebhookConfig, caCertFile string) error {
-	caBytes, err := os.ReadFile(caCertFile)
-	if err != nil {
-		return err
-	}
-
-	fail := admissionregistrationv1.Fail
-	sideEffects := admissionregistrationv1.SideEffectClassNoneOnDryRun
-	configPort := int32(port)
-	mutatePath := mutateDefaultPath
-
-	mutateConfig := &admissionregistrationv1.MutatingWebhookConfiguration{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      webhookConfig.Name,
-			Namespace: webhookConfig.Namespace,
-			Labels: map[string]string{
-				"app": webhookConfig.Name,
-			},
-		},
-		Webhooks: []admissionregistrationv1.MutatingWebhook{
-			{
-				// needs to be a valid dns
-				Name: webhookConfig.ServiceEndpoint,
-				ClientConfig: admissionregistrationv1.WebhookClientConfig{
-					CABundle: caBytes, // CA bundle created earlier
-					Service: &admissionregistrationv1.ServiceReference{
-						Name:      webhookConfig.ServiceName,
-						Namespace: webhookConfig.ServiceNamespace,
-						Path:      &mutatePath,
-						Port:      &configPort,
-					},
-				},
-				Rules: []admissionregistrationv1.RuleWithOperations{
-					{
-						Operations: []admissionregistrationv1.OperationType{
-							admissionregistrationv1.Create,
-							admissionregistrationv1.Delete,
-						},
-						Rule: admissionregistrationv1.Rule{
-							APIGroups:   []string{""},
-							APIVersions: []string{"v1"},
-							Resources:   []string{"pods"},
-						},
-					},
-				},
-				FailurePolicy: &fail,
-				SideEffects:   &sideEffects,
-				AdmissionReviewVersions: []string{
-					"v1",
-				},
-				ObjectSelector: &metav1.LabelSelector{
-					MatchLabels: map[string]string{
-						secrets.PodLabel: secrets.PodLabelValue,
-					},
-				},
-			}},
-	}
-
-	webhookClient := k8sClient.AdmissionregistrationV1().MutatingWebhookConfigurations()
-	ctx := context.Background()
-
-	log.Infof("Creating MutatingWebhookConfiguration")
-	_, err = webhookClient.Create(ctx, mutateConfig, metav1.CreateOptions{})
-
-	if err != nil && k8errors.IsAlreadyExists(err) {
-		log.Infof("Failed to create MutatingWebhookConfiguration. Will attempt to update. Error: %v", err)
-		obj, getErr := webhookClient.Get(ctx, mutateConfig.Name, metav1.GetOptions{})
-		if getErr != nil {
-			logger.Infof(ctx, "Failed to get MutatingWebhookConfiguration. Error: %v", getErr)
-			return err
-		}
-
-		obj.Webhooks = mutateConfig.Webhooks
-		_, err = webhookClient.Update(ctx, obj, metav1.UpdateOptions{})
-		if err != nil {
-			logger.Infof(ctx, "Failed to update existing mutating webhook config. Error: %v", err)
-			return err
-		}
-	} else if err != nil {
-		log.Infof("Failed to create MutatingWebhookConfiguration. Error: %v", err)
-	}
-
-	log.Infof("MutatingWebhookConfiguration configured")
-	return nil
 }
