@@ -11,6 +11,7 @@ env:
   ARTIFACT_RETENTION_DAYS: 7
   DOCKER_BUILDKIT: 1
   GO_VERSION: "1.20"
+  GO_LINT_VERSION: v1.52.2
 
 jobs:
   create-version:
@@ -47,7 +48,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.51.2
+          version: ${{ env.GO_LINT_VERSION }}
 
   test:
     runs-on: ubuntu-latest
@@ -73,7 +74,7 @@ jobs:
       - name: Save Docker
         run: docker image save --output dap-secret-webhook.${{ needs.create-version.outputs.version }}.tar dap-secret-webhook:${{ needs.create-version.outputs.version }}
       - name: Publish Docker Artifact
-        uses: actions/upload-artifact@v23
+        uses: actions/upload-artifact@v3
         with:
           name: dap-secret-webhook.${{ needs.create-version.outputs.version }}.tar
           path: dap-secret-webhook.${{ needs.create-version.outputs.version }}.tar
