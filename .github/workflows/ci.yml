@@ -1,0 +1,98 @@
+name: DAP Secret Webhook CI Workflow
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - v*
+  pull_request:
+
+env:
+  ARTIFACT_RETENTION_DAYS: 7
+  DOCKER_BUILDKIT: 1
+  GO_VERSION: "1.20"
+
+jobs:
+  create-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.create_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - id: create_version
+        name: Create version string
+        run: |
+          # Strip git ref prefix from version
+          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+          [ "$VERSION" == "main" ] && VERSION=$(git describe --tags --always --first-parent)
+
+          # Strip "v" prefix
+          [[ "${VERSION}" == "v"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
+
+          # If it's pull request the version string is set to sha
+          [ ${{ github.event_name}} == "pull_request" ] && VERSION="${{ github.event.pull_request.head.sha }}"
+
+          echo ${VERSION}
+          echo "::set-output name=version::${VERSION}"
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v3
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/checkout@v3
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: v1.51.2
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build
+        run: make build
+      - name: Test
+        run: make test
+
+  build:
+    runs-on: ubuntu-latest
+    needs:
+      - create-version
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build Docker
+        run: docker build -t dap-secret-webhook:${{ needs.create-version.outputs.version }} -f Dockerfile .
+      - name: Save Docker
+        run: docker image save --output dap-secret-webhook.${{ needs.create-version.outputs.version }}.tar dap-secret-webhook:${{ needs.create-version.outputs.version }}
+      - name: Publish Docker Artifact
+        uses: actions/upload-artifact@v23
+        with:
+          name: dap-secret-webhook.${{ needs.create-version.outputs.version }}.tar
+          path: dap-secret-webhook.${{ needs.create-version.outputs.version }}.tar
+          retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+
+  release-rules:
+    runs-on: ubuntu-latest
+    outputs:
+      release-type: ${{ steps.release-rules.outputs.release-type }}
+    steps:
+      - id: release-rules
+        uses: caraml-dev/turing/.github/actions/release-rules@main
+
+  release:
+    uses: ./.github/workflows/release.yml
+    needs:
+      - create-version
+      - build
+      - test
+    with:
+      version: ${{ needs.create-version.outputs.version }}
+

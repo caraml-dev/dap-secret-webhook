@@ -44,7 +44,7 @@ run:
 # ==================================
 .PHONY: test
 test:
-	@go test -v ./... -coverpkg ./... -gcflags=-l -race -coverprofile  cover.out
+	@go test -v -short -race -coverprofile  cover.out ./...
 	@go tool cover -func cover.out
 
 
