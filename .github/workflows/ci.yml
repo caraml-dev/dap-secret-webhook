@@ -49,6 +49,7 @@ jobs:
         uses: golangci/golangci-lint-action@v3
         with:
           version: ${{ env.GO_LINT_VERSION }}
+          args: --timeout 3m --verbose
 
   test:
     runs-on: ubuntu-latest
@@ -79,14 +80,6 @@ jobs:
           name: dap-secret-webhook.${{ needs.create-version.outputs.version }}.tar
           path: dap-secret-webhook.${{ needs.create-version.outputs.version }}.tar
           retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
-
-  release-rules:
-    runs-on: ubuntu-latest
-    outputs:
-      release-type: ${{ steps.release-rules.outputs.release-type }}
-    steps:
-      - id: release-rules
-        uses: caraml-dev/turing/.github/actions/release-rules@main
 
   release:
     uses: ./.github/workflows/release.yml
