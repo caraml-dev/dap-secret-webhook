@@ -142,7 +142,6 @@ jobs:
           name: ${{ env.APP_NAME }}.${{ needs.create-version.outputs.version }}.tar
 
       - name: Publish image to the local registry
-        env:
         shell: bash
         run: |
           docker image load --input ${{ env.APP_NAME }}.${{ needs.create-version.outputs.version }}.tar
