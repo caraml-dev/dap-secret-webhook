@@ -226,7 +226,12 @@ jobs:
         run: |
           # create pod with labels and using Secret Group: 'testgroup' and Key: 'testsecretkey'
           kubectl apply -f .github/e2e/pod.yaml
-          while [[ $(kubectl get pod flyte pod-with-secret -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do echo "waiting for pod" && sleep 10; done
+          while [[ $(kubectl get pod -n testgroup pod-with-secret -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do 
+            echo "waiting for pod" 
+            kubectl describe pod -n flyte
+            kubectl logs -n flyte -l app=dap-secret-webhook
+            sleep 30
+          done
           
           # verify secret is created with {pod_name} with the secret key and encoded value in data
           created_secret=$(kubectl get secrets -n testgroup pod-with-secret -o jsonpath="{.data}")
