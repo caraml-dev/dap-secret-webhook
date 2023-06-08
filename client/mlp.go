@@ -46,7 +46,7 @@ func (m *APIClient) GetMLPSecretValue(project string, secretName string) (string
 			return mlpSecret.Data, nil
 		}
 	}
-	return "", fmt.Errorf("cannot find secret from mlp")
+	return "", fmt.Errorf("cannot find secret '%v' from mlp project '%v'", secretName, project)
 }
 
 func (m *APIClient) getMLPProject(namespace string) (*mlp.Project, error) {
@@ -70,5 +70,5 @@ func (m *APIClient) getMLPProject(namespace string) (*mlp.Project, error) {
 			return &project, nil
 		}
 	}
-	return nil, fmt.Errorf("cannot find project from mlp client")
+	return nil, fmt.Errorf("cannot find project '%v'from mlp client", namespace)
 }

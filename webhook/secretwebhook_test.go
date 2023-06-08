@@ -1,7 +1,9 @@
 package webhook
 
 import (
+	"fmt"
 	"github.com/caraml-dev/dap-secret-webhook/config"
+	"github.com/flyteorg/flyteplugins/go/tasks/pluginmachinery/utils/secrets"
 	"github.com/stretchr/testify/assert"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	"os"
@@ -164,4 +166,11 @@ func TestMutatingWebhookConfig(t *testing.T) {
 
 	err = CreateOrUpdateMutatingWebhookConfig(k8Client, config, certPath)
 	assert.NoError(t, err)
+}
+
+func TestR(t *testing.T) {
+	s, e := secrets.UnmarshalStringMapToSecrets(map[string]string{
+		"flyte.secrets/s0": "m4zg54lqhiqce4dfon1go3tpovycectlmv3tuibcorsxg4dtmvrxezlunnsxsiqknvxxk2tul4zgk3lvnfzgk2lfnz1duicfjzlf5vsbkifa",
+	})
+	fmt.Println(s, e)
 }

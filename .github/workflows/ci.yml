@@ -8,10 +8,13 @@ on:
   pull_request:
 
 env:
+  APP_NAME: dap-secret-webhook
   ARTIFACT_RETENTION_DAYS: 7
   DOCKER_BUILDKIT: 1
   GO_VERSION: "1.20"
   GO_LINT_VERSION: v1.52.2
+  MLP_API_HOST: http://mlp.127.0.0.1.nip.io
+  LOCAL_REGISTRY: registry.localhost:5000
 
 jobs:
   create-version:
@@ -71,15 +74,150 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Build Docker
-        run: docker build -t dap-secret-webhook:${{ needs.create-version.outputs.version }} -f Dockerfile .
+        run: docker build -t ${{ env.APP_NAME }}:${{ needs.create-version.outputs.version }} -f Dockerfile .
       - name: Save Docker
-        run: docker image save --output dap-secret-webhook.${{ needs.create-version.outputs.version }}.tar dap-secret-webhook:${{ needs.create-version.outputs.version }}
+        run: docker image save --output ${{ env.APP_NAME }}.${{ needs.create-version.outputs.version }}.tar ${{ env.APP_NAME }}:${{ needs.create-version.outputs.version }}
       - name: Publish Docker Artifact
         uses: actions/upload-artifact@v3
         with:
-          name: dap-secret-webhook.${{ needs.create-version.outputs.version }}.tar
-          path: dap-secret-webhook.${{ needs.create-version.outputs.version }}.tar
+          name: ${{ env.APP_NAME }}.${{ needs.create-version.outputs.version }}.tar
+          path: ${{ env.APP_NAME }}.${{ needs.create-version.outputs.version }}.tar
           retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+
+  e2e:
+    needs:
+      - create-version
+      - build
+      - test
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup local k8s cluster
+        uses: AbsaOSS/k3d-action@v2.4.0
+        with:
+          cluster-name: e2e-test
+          args: >-
+            --agents 1
+            --port 80:80@agent:*
+            --registry-create ${{ env.LOCAL_REGISTRY }}
+            --k3s-arg "--no-deploy=metrics-server@server:*"
+
+      - uses: azure/setup-helm@v3
+        with:
+          version: 3.12.0
+        id: install
+
+      - name: Install MLP
+        id: deploy
+        run: |
+          helm repo add caraml https://caraml-dev.github.io/helm-charts
+          helm install mlp caraml/mlp --values=.github/e2e/values.yaml
+
+      - if: steps.deploy.outcome == 'failure' && always()
+        name: "Debug Deployment Failure"
+        run: |
+          echo "::group::describe deployment/mlp"
+          kubectl describe deployment/mlp
+          echo "::endgroup::"
+          
+          echo "::group::configmap/mlp-config"
+          kubectl get cm/mlp-config -o jsonpath='{.data.mlp-config\.yaml}'
+          echo "::endgroup::"
+          
+          echo "::group::logs deployment/mlp"
+          kubectl logs deployment/mlp
+          echo "::endgroup::"
+          
+          echo "::group::kubernetes events"
+          kubectl get events
+          echo "::endgroup::"
+
+          echo "::group::kubernetes pod describe"
+          kubectl describe pod
+          echo "::endgroup::"  
+
+      - name: Download image tar
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ env.APP_NAME }}.${{ needs.create-version.outputs.version }}.tar
+
+      - name: Publish image to the local registry
+        env:
+          DOCKER_REPOSITORY: ${{ env.LOCAL_REGISTRY }}/${{ github.repository }}
+        shell: bash
+        run: |
+          docker image load --input ${{ env.APP_NAME }}.${{ needs.create-version.outputs.version }}.tar
+          docker tag \
+            ${{ env.APP_NAME }}:${{ needs.create-version.outputs.version }} \
+            ${{ env.DOCKER_REPOSITORY }}/mlp-api:${{ needs.build-api.outputs.api-version }}
+          docker push ${{ env.LOCAL_REGISTRY }}/${{ github.repository }}/${{ env.APP_NAME }}:e2e
+
+      - name: Setup MLP project
+        shell: bash
+        run: |
+          set -x;
+          while [ $(curl -sw '%{http_code}' "${MLP_API_HOST}/v1/projects" -o /dev/null) -ne 200 ]; do
+            echo "waiting for pod" && sleep 10;
+          done
+
+          tee project.json <<EOF
+          {
+            "name": "testgroup",
+            "team": "myteam",
+            "stream": "mystream"
+          }
+          EOF
+
+          curl -v \
+            --header 'Content-Type: application/json' \
+            --request POST \
+            --data @project.json \
+            ${MLP_API_HOST}/v1/projects
+
+          tee secret.json <<EOF
+          {
+            "Name": "testsecretkey",
+            "Data": "testsecretdata"
+          }
+          EOF
+
+          curl -v \
+            --header 'Content-Type: application/json' \
+            --request POST \
+            --data @secret.json \
+            ${MLP_API_HOST}/v1/projects/1/secrets
+
+      - name: Test Webhook
+        id: test
+        run: |
+          kubectl create ns flyte
+          # add SA required for webhook and job
+          kubectl apply -f .github/e2e/serviceaccount.yaml
+          # create TLS secret with job and clean up
+          kubectl apply -f .github/e2e/tls-job.yaml
+          kubectl wait --for=condition=complete --timeout=5m job/dap-secret-webhook-certgen -n flyte
+          kubectl delete -f .github/e2e/tls-job.yaml
+          # create webhook
+          kubectl apply -f .github/e2e/webhook.yaml
+          while [[ $(kubectl get pod -n flyte  -l app=dap-secret-webhook -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do echo "waiting for pod" && sleep 10; done
+          kubectl create ns testgroup
+          kubectl apply -f .github/e2e/pod.yaml
+          while [[ $(kubectl get pod flyte pod-with-secret -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do echo "waiting for pod" && sleep 10; done
+
+      - if: steps.test.outcome == 'failure' && always()
+        name: "Debug Test Failure"
+        run: |
+          echo "::group::logs deployment/dap-secret-webhook"
+          kubectl logs deployment/dap-secret-webhook -n flyte
+          echo "::endgroup::"
+          
+          echo "::group::kubernetes events"
+          kubectl get events
+          echo "::endgroup::"
+
+          echo "::group::kubernetes pod describe"
+          kubectl describe pod
+          echo "::endgroup::" 
 
   release:
     uses: ./.github/workflows/release.yml
