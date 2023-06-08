@@ -1,7 +1,7 @@
 # dap-secret-webhook
 
 ## Overview
-dap-secret-webhook is a simple server that integrates Flyte with MLP Secrets as a Kubernates Webhook Server. It creates Kubernates Secret and mount it as Flyte expected env vars, which can then function as per usual with FlyteKit. 
+dap-secret-webhook is a Kubernetes pod mutating webhook for using CaraML Secrets in Flyte.
 
 When Flyte Secret is used in a Flyte workflow, the created pod that runs the task will be injected with predefined Flyte labels, with the Secret metadata in pod annotations.
 
