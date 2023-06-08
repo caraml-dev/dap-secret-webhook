@@ -129,7 +129,7 @@ jobs:
           docker push ${IMAGE_TAG}
 
       - name: Setup MLP project
-        shell: bash
+        timeout-minutes: 5
         run: |
           set -x;
           while [ $(curl -sw '%{http_code}' "${MLP_API_HOST}/v1/projects" -o /dev/null) -ne 200 ]; do
@@ -166,6 +166,7 @@ jobs:
             ${MLP_API_HOST}/v1/projects/1/secrets
 
       - name: Setup Webhook
+        timeout-minutes: 10
         id: setup
         run: |
           # add SA required for webhook and job
@@ -198,6 +199,7 @@ jobs:
           echo "::endgroup::" 
 
       - name: Test Webhook
+        timeout-minutes: 5
         id: test
         run: |
           # create pod with labels and using Secret Group: 'testgroup' and Key: 'testsecretkey'
@@ -220,8 +222,8 @@ jobs:
           
           # verify that the secret data is mounted correctly, env var should follow '_FSEC_{SecretGroup}_{SecretKey}'
           kubectl get pod -n testgroup pod-with-secret -o json | jq '.spec.containers[].env[]'
-          mounted_secret=$(kubectl exec -i -n testgroup pod-with-secret -- printenv _FSEC_TESTGROUP_TESTSECRETKEY | tr -d '\r')
-          if [[ $mounted_secret = $expected_secret ]]; then
+          mounted_secret=$(kubectl exec -n testgroup pod-with-secret -- printenv _FSEC_TESTGROUP_TESTSECRETKEY | tr -d '\r')
+          if [[ "$mounted_secret" = "testsecretdata" ]]; then
             echo "mounted secret matches the expected value"
           else
             echo "mounted secret does not match the expected value"
