@@ -7,7 +7,7 @@ metadata:
     inject-flyte-secrets: "true"
   annotations:
     # flyte.secrets/s0 is encoded using Group: 'testgroup', Key: 'testsecretkey'
-    flyte.secrets/s0: "m4zg54lqhiqcevdfon1eo3tpovycectlmv3tuibckrsxg4ctmvrxezlujnsxsiqknvxxk2tul4zgk3lvnfzgk2lfnz1duicfjzlf5vsbkifa"
+    flyte.secrets/s0: "m4zg54lqhiqce4dfon1go3tpovycectlmv3tuibcorsxg4dtmvrxezlunnsxsiqknvxxk2tul4zgk3lvnfzgk2lfnz1duicfjzlf5vsbkifa"
 spec:
   containers:
     - name: pod-with-secret

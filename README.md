@@ -35,3 +35,12 @@ Reference
 | WEBHOOK_SERVICE_NAMESPACE | flyte                                      | Namespace of the service deployed in cluster                                 |
 | WEBHOOK_SERVICE_PORT      | 443                                        | Port of the service                                                          |
 | WEBHOOK_MUTATE_PATH       | /mutate                                    | Endpoint of the service to call for mutate function                          |
+
+### Folder Structure
+    .        
+    ├── client                  # MLP CLient
+    ├── cmd                     # Entrypoint
+    ├── config                  # Configuration
+    ├── test                    # Test data and mocks
+    ├── webhook                 # Webhook Server
+    └── README.md
