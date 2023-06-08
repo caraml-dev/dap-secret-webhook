@@ -121,7 +121,7 @@ jobs:
 
       - name: Publish image to the local registry
         shell: bash
-        run:
+        run: |
           IMAGE_TAG="${{ env.LOCAL_REGISTRY }}/${{ github.repository }}:e2e"
           docker tag \
             ${{ env.APP_NAME }}:${{ needs.create-version.outputs.version }} \
@@ -219,6 +219,7 @@ jobs:
           fi
           
           # verify that the secret data is mounted correctly, env var should follow '_FSEC_{SecretGroup}_{SecretKey}'
+          kubectl get pod -n testgroup pod-with-secret -o json | jq '.spec.containers[].env[]'
           mounted_secret=$(kubectl exec -i -n testgroup pod-with-secret -- printenv _FSEC_TESTGROUP_TESTSECRETKEY | tr -d '\r')
           if [[ $mounted_secret = $expected_secret ]]; then
             echo "mounted secret matches the expected value"
