@@ -27,7 +27,7 @@ func init() {
 
 func TestMutate(t *testing.T) {
 	mlpClient := &mocks.MLPClient{}
-	mlpClient.On("GetMLPSecretValue", "test_namespace", "TestSecretKey").Return("secret_data", nil)
+	mlpClient.On("GetMLPSecretValue", "testgroup", "testsecretkey").Return("secret_data", nil)
 	dapWebhook := NewDAPWebhook(fake.NewSimpleClientset(), mlpClient, codecs.UniversalDeserializer())
 	jsonPatchType := v1.PatchTypeJSONPatch
 
@@ -58,7 +58,7 @@ func TestMutate(t *testing.T) {
 					},
 				},
 				additionalFunc: func() {
-					mlpClient.AssertCalled(t, "GetMLPSecretValue", "test_namespace", "TestSecretKey")
+					mlpClient.AssertCalled(t, "GetMLPSecretValue", "testgroup", "testsecretkey")
 				},
 			},
 			// Expect an 'add' patch with env var _FSEC_{Group}_{Key} with value from secret named {pod_name}, with key {Key}
@@ -66,8 +66,8 @@ func TestMutate(t *testing.T) {
 			resp: &v1.AdmissionResponse{
 				Allowed: true,
 				Patch: []byte(`[{"op":"add","path":"/spec/containers/0/env",` +
-					`"value":[{"name":"_FSEC_TESTGROUP_TESTSECRETKEY","valueFrom":{"secretKeyRef":{"key":"TestSecretKey",` +
-					`"name":"pod_with_secret","optional":true}}},{"name":"FLYTE_SECRETS_ENV_PREFIX","value":"_FSEC_"}]}]`),
+					`"value":[{"name":"_FSEC_TESTGROUP_TESTSECRETKEY","valueFrom":{"secretKeyRef":{"key":"testsecretkey",` +
+					`"name":"pod-with-secret","optional":true}}},{"name":"FLYTE_SECRETS_ENV_PREFIX","value":"_FSEC_"}]}]`),
 				PatchType: &jsonPatchType,
 			},
 		},
@@ -110,6 +110,7 @@ func TestMutate(t *testing.T) {
 					Request: &v1.AdmissionRequest{
 						Operation: "CREATE",
 						Object: runtime.RawExtension{
+							//annotation created with empty key
 							Raw: []byte(`{"metadata":{"annotations":{"flyte.secrets/s0":"m4zg54lqhiqcevdfon1eo3tpovycectnn41w34c6ojsxc4ljojsw1zlooq4carkokzpvmqksbi"}}}`),
 						},
 					},

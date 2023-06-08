@@ -85,6 +85,7 @@ jobs:
     uses: ./.github/workflows/release.yml
     needs:
       - create-version
+      - lint
       - build
       - test
     with:

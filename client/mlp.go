@@ -30,7 +30,7 @@ func (m *APIClient) GetMLPSecretValue(project string, secretName string) (string
 
 	mlpProject, err := m.getMLPProject(project)
 	if err != nil {
-		return "", fmt.Errorf("cannot get project from mlp")
+		return "", fmt.Errorf("cannot get project from mlp, %v", err.Error())
 	}
 
 	secrets, resp, err := m.SecretApi.V1ProjectsProjectIdSecretsGet(ctx, mlpProject.ID)
