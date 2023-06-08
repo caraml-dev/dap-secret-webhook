@@ -10,7 +10,6 @@ on:
 env:
   APP_NAME: dap-secret-webhook
   ARTIFACT_RETENTION_DAYS: 7
-  DOCKER_BUILDKIT: 1
   GO_VERSION: "1.20"
   GO_LINT_VERSION: v1.52.2
   MLP_API_HOST: http://mlp.127.0.0.1.nip.io
@@ -243,7 +242,7 @@ jobs:
           fi
           
           # verify that the secret data is mounted correctly, env var should follow '_FSEC_{SecretGroup}_{SecretKey}'
-          mounted_secret=$(kubectl exec -it -n testgroup pod-with-secret -- printenv _FSEC_TESTGROUP_TESTSECRETKEY | tr -d '\r')
+          mounted_secret=$(kubectl exec -i -n testgroup pod-with-secret -- printenv _FSEC_TESTGROUP_TESTSECRETKEY | tr -d '\r')
           if [[ $mounted_secret = $expected_secret ]]; then
             echo "mounted secret matches the expected value"
           else
