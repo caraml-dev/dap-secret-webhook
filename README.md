@@ -10,7 +10,12 @@ DAP Secret Webhook Server will read the Flyte Secret metadata from the annotatio
 - Read the Flyte Secret Metadata and fetch the Secret Data from MLP
 - Create a k8 Secret resource and mount it as env var to the pod, in an expected format by Flyte Secret Manager
 
-## Prerequisite 
+Reference  
+- [Kubernetes Webhook](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/)
+- [Kubernetes Webhook Test](https://github.com/kubernetes/kubernetes/tree/release-1.24/test/images/agnhost/webhook)
+- [Flyte Webhook Implement](https://github.com/flyteorg/flytepropeller/tree/master/pkg/webhook)
+
+### Prerequisite 
 - Flyte Native Webhook to be disabled
 - [MLP](https://github.com/caraml-dev/mlp/tree/main)
 - TLS Server Key/Cert and CA certs generated
