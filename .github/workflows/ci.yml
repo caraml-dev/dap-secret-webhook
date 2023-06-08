@@ -70,6 +70,8 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - create-version
+      - lint
+      - unit-test
     steps:
       - uses: actions/checkout@v3
       - name: Build Docker
@@ -120,7 +122,6 @@ jobs:
           echo "::endgroup::"  
 
       - name: Publish image to the local registry
-        shell: bash
         run: |
           IMAGE_TAG="${{ env.LOCAL_REGISTRY }}/${{ github.repository }}:e2e"
           docker tag \
@@ -131,9 +132,8 @@ jobs:
       - name: Setup MLP project
         timeout-minutes: 5
         run: |
-          set -x;
           while [ $(curl -sw '%{http_code}' "${MLP_API_HOST}/v1/projects" -o /dev/null) -ne 200 ]; do
-            echo "waiting for pod" && sleep 10;
+            echo "waiting for pod..." && sleep 10;
           done
           
           # Create testgroup project and secret 'testsecretkey'
@@ -181,28 +181,13 @@ jobs:
           # create webhook
           kubectl apply -f .github/e2e/webhook.yaml
           while [[ $(kubectl get pod -n flyte  -l app=dap-secret-webhook -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do echo "waiting for pod" && sleep 10; done
-          kubectl create ns testgroup
-
-      - if: steps.setup.outcome == 'failure' && always()
-        name: "Debug Setup Failure"
-        run: |
-          echo "::group::logs deployment/dap-secret-webhook"
-          kubectl logs deployment/dap-secret-webhook -n flyte
-          echo "::endgroup::"
-          
-          echo "::group::kubernetes events"
-          kubectl get events
-          echo "::endgroup::"
-
-          echo "::group::kubernetes pod describe"
-          kubectl describe pod
-          echo "::endgroup::" 
 
       - name: Test Webhook
         timeout-minutes: 5
         id: test
         run: |
           # create pod with labels and using Secret Group: 'testgroup' and Key: 'testsecretkey'
+          kubectl create ns testgroup
           kubectl apply -f .github/e2e/pod.yaml
           while [[ $(kubectl get pod -n testgroup pod-with-secret -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do 
             echo "waiting for pod" 
@@ -217,16 +202,17 @@ jobs:
             echo "created secret matches the expected value"
           else
             echo "created secret does not match the expected value"
+            kubectl get secrets -n testgroup pod-with-secret -o json
             exit 1
           fi
           
           # verify that the secret data is mounted correctly, env var should follow '_FSEC_{SecretGroup}_{SecretKey}'
-          kubectl get pod -n testgroup pod-with-secret -o json | jq '.spec.containers[].env[]'
           mounted_secret=$(kubectl exec -n testgroup pod-with-secret -- printenv _FSEC_TESTGROUP_TESTSECRETKEY | tr -d '\r')
           if [[ "$mounted_secret" = "testsecretdata" ]]; then
             echo "mounted secret matches the expected value"
           else
             echo "mounted secret does not match the expected value"
+            kubectl get pod -n testgroup pod-with-secret -o json | jq '.spec.containers[].env[]'
             exit 1
           fi
 
@@ -242,7 +228,7 @@ jobs:
         env:
           DOCKER_REGISTRY: ghcr.io
         run: |
-          IMAGE_TAG="${{ env.DOCKER_REGISTRY }}/${{ github.repository }}:${{ inputs.version }}"
+          IMAGE_TAG="${{ env.DOCKER_REGISTRY }}/${{ github.repository }}:${{ needs.create-version.outputs.version }}"
           docker tag ${{ env.APP_NAME }}:${{ needs.create-version.outputs.version }} ${IMAGE_TAG}
           docker push ${IMAGE_TAG}
 
