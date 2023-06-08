@@ -85,6 +85,7 @@ jobs:
           retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
 
   e2e:
+    runs-on: ubuntu-latest
     needs:
       - create-version
       - build
@@ -190,13 +191,15 @@ jobs:
       - name: Test Webhook
         id: test
         run: |
-          kubectl create ns flyte
           # add SA required for webhook and job
+          kubectl create ns flyte
           kubectl apply -f .github/e2e/serviceaccount.yaml
+          
           # create TLS secret with job and clean up
           kubectl apply -f .github/e2e/tls-job.yaml
           kubectl wait --for=condition=complete --timeout=5m job/dap-secret-webhook-certgen -n flyte
           kubectl delete -f .github/e2e/tls-job.yaml
+          
           # create webhook
           kubectl apply -f .github/e2e/webhook.yaml
           while [[ $(kubectl get pod -n flyte  -l app=dap-secret-webhook -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do echo "waiting for pod" && sleep 10; done
