@@ -150,8 +150,8 @@ jobs:
           docker image load --input ${{ env.APP_NAME }}.${{ needs.create-version.outputs.version }}.tar
           docker tag \
             ${{ env.APP_NAME }}:${{ needs.create-version.outputs.version }} \
-            ${{ env.DOCKER_REPOSITORY }}/mlp-api:${{ needs.build-api.outputs.api-version }}
-          docker push ${{ env.LOCAL_REGISTRY }}/${{ github.repository }}/${{ env.APP_NAME }}:e2e
+            ${{ env.DOCKER_REPOSITORY }}/${{ env.APP_NAME }}:${{ needs.build-api.outputs.api-version }}
+          docker push ${{ env.DOCKER_REPOSITORY }}/${{ env.APP_NAME }}:e2e
 
       - name: Setup MLP project
         shell: bash
