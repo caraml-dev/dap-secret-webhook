@@ -1,8 +1,8 @@
 package webhook
 
 import (
-	"fmt"
 	"github.com/caraml-dev/dap-secret-webhook/config"
+	"github.com/flyteorg/flyteidl/gen/pb-go/flyteidl/core"
 	"github.com/flyteorg/flyteplugins/go/tasks/pluginmachinery/utils/secrets"
 	"github.com/stretchr/testify/assert"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
@@ -27,9 +27,14 @@ func init() {
 	utilruntime.Must(v1.AddToScheme(admissionScheme))
 }
 
+const (
+	secretGroup = "testgroup"
+	secretKey   = "testsecretkey"
+)
+
 func TestMutate(t *testing.T) {
 	mlpClient := &mocks.MLPClient{}
-	mlpClient.On("GetMLPSecretValue", "testgroup", "testsecretkey").Return("secret_data", nil)
+	mlpClient.On("GetMLPSecretValue", secretGroup, secretKey).Return("secret_data", nil)
 	dapWebhook := NewDAPWebhook(fake.NewSimpleClientset(), mlpClient, codecs.UniversalDeserializer())
 	jsonPatchType := v1.PatchTypeJSONPatch
 
@@ -60,7 +65,7 @@ func TestMutate(t *testing.T) {
 					},
 				},
 				additionalFunc: func() {
-					mlpClient.AssertCalled(t, "GetMLPSecretValue", "testgroup", "testsecretkey")
+					mlpClient.AssertCalled(t, "GetMLPSecretValue", secretGroup, secretKey)
 				},
 			},
 			// Expect an 'add' patch with env var _FSEC_{Group}_{Key} with value from secret named {pod_name}, with key {Key}
@@ -168,9 +173,17 @@ func TestMutatingWebhookConfig(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestR(t *testing.T) {
-	s, e := secrets.UnmarshalStringMapToSecrets(map[string]string{
+// this is used to check the secret used in /test/mutate/pod_with_secret.yaml is using an encrypted secret expected by other test
+func TestAnnotation(t *testing.T) {
+	got, err := secrets.UnmarshalStringMapToSecrets(map[string]string{
 		"flyte.secrets/s0": "m4zg54lqhiqce4dfon1go3tpovycectlmv3tuibcorsxg4dtmvrxezlunnsxsiqknvxxk2tul4zgk3lvnfzgk2lfnz1duicfjzlf5vsbkifa",
 	})
-	fmt.Println(s, e)
+	expected := &core.Secret{
+		Group:            secretGroup,
+		Key:              secretKey,
+		MountRequirement: 1,
+	}
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(got))
+	assert.Equal(t, expected, got[0])
 }

@@ -6,7 +6,7 @@ metadata:
   labels:
     inject-flyte-secrets: "true"
   annotations:
-    # flyte.secrets/s0 is encoded using Group: 'TestGroup', Key: 'TestSecretKey'
+    # flyte.secrets/s0 is encoded using Group: 'testgroup', Key: 'testsecretkey'
     flyte.secrets/s0: "m4zg54lqhiqcevdfon1eo3tpovycectlmv3tuibckrsxg4ctmvrxezlujnsxsiqknvxxk2tul4zgk3lvnfzgk2lfnz1duicfjzlf5vsbkifa"
 spec:
   containers:

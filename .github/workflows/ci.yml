@@ -87,7 +87,6 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     needs:
-      - create-version
       - build
       - test
     steps:
@@ -144,14 +143,14 @@ jobs:
 
       - name: Publish image to the local registry
         env:
-          DOCKER_REPOSITORY: ${{ env.LOCAL_REGISTRY }}/${{ github.repository }}
         shell: bash
         run: |
           docker image load --input ${{ env.APP_NAME }}.${{ needs.create-version.outputs.version }}.tar
+          IMAGE_TAG="${{ env.LOCAL_REGISTRY }}/${{ github.repository }}:e2e"
           docker tag \
             ${{ env.APP_NAME }}:${{ needs.create-version.outputs.version }} \
-            ${{ env.DOCKER_REPOSITORY }}/${{ env.APP_NAME }}:${{ needs.build-api.outputs.api-version }}
-          docker push ${{ env.DOCKER_REPOSITORY }}/${{ env.APP_NAME }}:e2e
+            ${IMAGE_TAG}
+          docker push ${IMAGE_TAG}
 
       - name: Setup MLP project
         shell: bash
@@ -160,6 +159,8 @@ jobs:
           while [ $(curl -sw '%{http_code}' "${MLP_API_HOST}/v1/projects" -o /dev/null) -ne 200 ]; do
             echo "waiting for pod" && sleep 10;
           done
+          
+          # Create testgroup project and secret 'testsecretkey'
 
           tee project.json <<EOF
           {
@@ -188,8 +189,8 @@ jobs:
             --data @secret.json \
             ${MLP_API_HOST}/v1/projects/1/secrets
 
-      - name: Test Webhook
-        id: test
+      - name: Setup Webhook
+        id: setup
         run: |
           # add SA required for webhook and job
           kubectl create ns flyte
@@ -204,11 +205,9 @@ jobs:
           kubectl apply -f .github/e2e/webhook.yaml
           while [[ $(kubectl get pod -n flyte  -l app=dap-secret-webhook -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do echo "waiting for pod" && sleep 10; done
           kubectl create ns testgroup
-          kubectl apply -f .github/e2e/pod.yaml
-          while [[ $(kubectl get pod flyte pod-with-secret -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do echo "waiting for pod" && sleep 10; done
 
-      - if: steps.test.outcome == 'failure' && always()
-        name: "Debug Test Failure"
+      - if: steps.setup.outcome == 'failure' && always()
+        name: "Debug Setup Failure"
         run: |
           echo "::group::logs deployment/dap-secret-webhook"
           kubectl logs deployment/dap-secret-webhook -n flyte
@@ -222,13 +221,39 @@ jobs:
           kubectl describe pod
           echo "::endgroup::" 
 
+      - name: Test Webhook
+        id: test
+        run: |
+          # create pod with labels and using Secret Group: 'testgroup' and Key: 'testsecretkey'
+          kubectl apply -f .github/e2e/pod.yaml
+          while [[ $(kubectl get pod flyte pod-with-secret -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do echo "waiting for pod" && sleep 10; done
+          
+          # verify secret is created with {pod_name} with the secret key and encoded value in data
+          created_secret=$(kubectl get secrets -n testgroup pod-with-secret -o jsonpath="{.data}")
+          if [[ $created_secret = '{"testsecretkey":"dGVzdHNlY3JldGRhdGE="}' ]]; then
+            echo "created secret matches the expected value"
+          else
+            echo "created secret does not match the expected value"
+            exit 1
+          fi
+          
+          # verify that the secret data is mounted correctly, env var should follow '_FSEC_{SecretGroup}_{SecretKey}'
+          mounted_secret=$(kubectl exec -it -n testgroup pod-with-secret -- printenv _FSEC_TESTGROUP_TESTSECRETKEY | tr -d '\r')
+          if [[ $mounted_secret = $expected_secret ]]; then
+            echo "mounted secret matches the expected value"
+          else
+            echo "mounted secret does not match the expected value"
+            exit 1
+          fi
+          
+
   release:
     uses: ./.github/workflows/release.yml
     needs:
-      - create-version
       - lint
       - build
       - test
+      - e2e
     with:
       version: ${{ needs.create-version.outputs.version }}
 

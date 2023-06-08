@@ -34,7 +34,7 @@ spec:
       serviceAccountName: dap-secret-webhook
       containers:
         - name: app
-          image: ghcr.io/caraml-dev/dap-secret-webhook:e2e
+          image: caraml-dev/dap-secret-webhook:e2e
           imagePullPolicy: Always
           env:
           - name: MLP_API_HOST
