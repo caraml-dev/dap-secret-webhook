@@ -1,0 +1,221 @@
+name: DAP Secret Webhook CI Workflow
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - v*
+  pull_request:
+
+env:
+  APP_NAME: dap-secret-webhook
+  ARTIFACT_RETENTION_DAYS: 7
+  GO_VERSION: "1.20"
+  GO_LINT_VERSION: v1.52.2
+  MLP_API_HOST: http://mlp.127.0.0.1.nip.io
+  LOCAL_REGISTRY: registry.localhost:5000
+
+jobs:
+  create-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.create_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - id: create_version
+        name: Create version string
+        run: |
+          # Strip git ref prefix from version
+          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+          [ "$VERSION" == "main" ] && VERSION=$(git describe --tags --always --first-parent)
+
+          # Strip "v" prefix
+          [[ "${VERSION}" == "v"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
+
+          # If it's pull request the version string is set to sha
+          [ ${{ github.event_name}} == "pull_request" ] && VERSION="${{ github.event.pull_request.head.sha }}"
+
+          echo ${VERSION}
+          echo "::set-output name=version::${VERSION}"
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v3
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/checkout@v3
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: ${{ env.GO_LINT_VERSION }}
+          args: --timeout 3m --verbose
+
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build
+        run: make build
+      - name: Test
+        run: make test
+
+  ci:
+    runs-on: ubuntu-latest
+    needs:
+      - create-version
+      - lint
+      - unit-test
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build Docker
+        run: docker build -t ${{ env.APP_NAME }}:${{ needs.create-version.outputs.version }} -f Dockerfile .
+
+      - name: Setup local k8s cluster
+        uses: AbsaOSS/k3d-action@v2.4.0
+        with:
+          cluster-name: e2e-test
+          args: >-
+            --agents 1
+            --port 80:80@agent:*
+            --registry-create ${{ env.LOCAL_REGISTRY }}
+            --k3s-arg "--no-deploy=metrics-server@server:*"
+
+      - uses: azure/setup-helm@v3
+        with:
+          version: 3.12.0
+        id: install
+
+      - name: Install MLP
+        id: deploy
+        run: |
+          helm repo add caraml https://caraml-dev.github.io/helm-charts
+          helm install mlp caraml/mlp --values=.github/e2e/mlp.yaml --wait --timeout=3m \
+
+      - if: steps.deploy.outcome == 'failure' && always()
+        name: "Debug Deployment Failure"
+        run: |
+          echo "::group::describe deployment/mlp"
+          kubectl describe deployment/mlp
+          echo "::endgroup::"
+          
+          echo "::group::configmap/mlp-config"
+          kubectl get cm/mlp-config -o jsonpath='{.data.mlp-config\.yaml}'
+          echo "::endgroup::"
+          
+          echo "::group::logs deployment/mlp"
+          kubectl logs deployment/mlp
+          echo "::endgroup::"
+          
+          echo "::group::kubernetes events"
+          kubectl get events
+          echo "::endgroup::"
+
+          echo "::group::kubernetes pod describe"
+          kubectl describe pod
+          echo "::endgroup::"  
+
+      - name: Publish image to the local registry
+        run: |
+          IMAGE_TAG="${{ env.LOCAL_REGISTRY }}/${{ github.repository }}:e2e"
+          docker tag \
+            ${{ env.APP_NAME }}:${{ needs.create-version.outputs.version }} \
+            ${IMAGE_TAG}
+          docker push ${IMAGE_TAG}
+
+      - name: Setup MLP project
+        run: |
+          # Create testgroup project and secret 'testsecretkey'
+
+          tee project.json <<EOF
+          {
+            "name": "testgroup",
+            "team": "myteam",
+            "stream": "mystream"
+          }
+          EOF
+
+          curl -v \
+            --header 'Content-Type: application/json' \
+            --request POST \
+            --data @project.json \
+            ${MLP_API_HOST}/v1/projects
+
+          tee secret.json <<EOF
+          {
+            "Name": "testsecretkey",
+            "Data": "testsecretdata"
+          }
+          EOF
+
+          curl -v \
+            --header 'Content-Type: application/json' \
+            --request POST \
+            --data @secret.json \
+            ${MLP_API_HOST}/v1/projects/1/secrets
+
+      - name: Setup Webhook
+        id: setup
+        run: |
+          # add SA required for webhook and job
+          kubectl create ns flyte
+          kubectl apply -f .github/e2e/serviceaccount.yaml
+          
+          # create TLS secret with job and clean up
+          kubectl apply -f .github/e2e/tls-job.yaml
+          kubectl wait job/dap-secret-webhook-certgen -n flyte --for=condition=complete --timeout=3m 
+          
+          # create webhook
+          kubectl apply -f .github/e2e/webhook.yaml
+          kubectl wait pod -l app=dap-secret-webhook -n flyte  --for condition=Ready --timeout=3m
+
+      - name: Test Webhook
+        id: test
+        run: |
+          # create pod with labels and using Secret Group: 'testgroup' and Key: 'testsecretkey'
+          kubectl create ns testgroup
+          kubectl apply -f .github/e2e/pod.yaml
+          kubectl wait pod pod-with-secret -n testgroup --for condition=Ready --timeout=3m
+          
+          # verify secret is created with {pod_name} with the secret key and encoded value in data
+          created_secret=$(kubectl get secrets -n testgroup pod-with-secret -o jsonpath="{.data}")
+          if [[ $created_secret = '{"testsecretkey":"dGVzdHNlY3JldGRhdGE="}' ]]; then
+            echo "created secret matches the expected value"
+          else
+            echo "created secret does not match the expected value"
+            kubectl get secrets -n testgroup pod-with-secret -o json
+            exit 1
+          fi
+          
+          # verify that the secret data is mounted correctly, env var should follow '_FSEC_{SecretGroup}_{SecretKey}'
+          mounted_secret=$(kubectl exec -n testgroup pod-with-secret -- printenv _FSEC_TESTGROUP_TESTSECRETKEY | tr -d '\r')
+          if [[ "$mounted_secret" = "testsecretdata" ]]; then
+            echo "mounted secret matches the expected value"
+          else
+            echo "mounted secret does not match the expected value"
+            kubectl get pod -n testgroup pod-with-secret -o json | jq '.spec.containers[].env[]'
+            exit 1
+          fi
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker Image
+        id: push-image
+        env:
+          DOCKER_REGISTRY: ghcr.io
+        run: |
+          IMAGE_TAG="${{ env.DOCKER_REGISTRY }}/${{ github.repository }}:${{ needs.create-version.outputs.version }}"
+          docker tag ${{ env.APP_NAME }}:${{ needs.create-version.outputs.version }} ${IMAGE_TAG}
+          docker push ${IMAGE_TAG}
+

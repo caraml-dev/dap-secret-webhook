@@ -1,0 +1,30 @@
+metadata:
+  creationTimestamp: null
+  labels:
+    app: wh_name
+  name: wh_name
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    caBundle: ZHVtbXlmaWxl
+    service:
+      name: service-name
+      path: /test
+      port: 8080
+  failurePolicy: Fail
+  name: local.cluster.svc
+  objectSelector:
+    matchLabels:
+      inject-flyte-secrets: "true"
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - DELETE
+    resources:
+    - pods
+  sideEffects: NoneOnDryRun

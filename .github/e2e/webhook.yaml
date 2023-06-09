@@ -1,0 +1,64 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dap-secret-webhook
+  namespace: flyte
+spec:
+  publishNotReadyAddresses: true
+  ports:
+    - port: 443
+      targetPort: 443
+  selector:
+    app: dap-secret-webhook
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dap-secret-webhook
+  namespace: flyte
+  labels:
+    app: dap-secret-webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dap-secret-webhook
+  template:
+    metadata:
+      name: dap-secret-webhook
+      labels:
+        app: dap-secret-webhook
+    spec:
+      serviceAccountName: dap-secret-webhook
+      containers:
+        - name: app
+          image: registry.localhost:5000/caraml-dev/dap-secret-webhook:e2e
+          imagePullPolicy: Always
+          env:
+          - name: MLP_API_HOST
+            value: http://mlp.default.svc.cluster.local:8080
+          - name: TLS_SERVER_CERT_FILE
+            value: /etc/tls-certs/serverCert.pem
+          - name: TLS_SERVER_KEY_FILE
+            value: /etc/tls-certs/serverKey.pem
+          - name: TLS_CA_CERT_FILE
+            value: /etc/tls-certs/caCert.pem
+          args:
+          - webhook
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 250m
+              memory: 128Mi
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/tls-certs
+              readOnly: true
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: dap-secret-webhook-tls-certs
