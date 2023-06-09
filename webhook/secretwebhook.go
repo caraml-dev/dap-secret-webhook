@@ -69,6 +69,7 @@ func (pm *DAPWebhook) Mutate(ar v1.AdmissionReview) *v1.AdmissionResponse {
 		if err != nil {
 			admissionResponse = toV1AdmissionResponse(err)
 		} else {
+			log.Infof("received create request for pod: '%v' in namespace: '%v'", pod.Name, pod.Namespace)
 			admissionResponse = pm.mutatePodAndCreateSecret(ar, pod)
 		}
 	} else if ar.Request.Operation == v1.Delete {
@@ -76,6 +77,7 @@ func (pm *DAPWebhook) Mutate(ar v1.AdmissionReview) *v1.AdmissionResponse {
 		if err != nil {
 			admissionResponse = toV1AdmissionResponse(err)
 		} else {
+			log.Infof("received delete request for pod: '%v' in namespace: '%v'", pod.Name, pod.Namespace)
 			admissionResponse = pm.deleteSecret(ar, pod)
 		}
 	} else {
@@ -134,6 +136,8 @@ func (pm *DAPWebhook) mutatePodAndCreateSecret(ar v1.AdmissionReview, pod *corev
 		}
 		k8secret.Data[secret.Key] = []byte(secretData)
 	}
+
+	log.Infof("injecting %d secrets to pod: '%v' in namespace: '%v'", len(secrets), pod.Name, pod.Namespace)
 
 	err = createK8Secret(pm.k8sClientSet, k8secret)
 	if err != nil {
@@ -221,6 +225,7 @@ func createK8Secret(clientSet kubernetes.Interface, k8secret *corev1.Secret) err
 			return err
 		}
 	}
+	log.Infof("created k8 secret: '%v' in namespace: '%v'", k8secret.Name, k8secret.Namespace)
 	return nil
 }
 
@@ -238,6 +243,7 @@ func deleteK8Secret(clientSet kubernetes.Interface, namespace string, secretName
 	if err != nil {
 		return fmt.Errorf("failed to delete mlpSecret: %v", err)
 	}
+	log.Infof("deleted k8 secret: '%v' in namespace: '%v'", secretName, namespace)
 	return nil
 }
 
