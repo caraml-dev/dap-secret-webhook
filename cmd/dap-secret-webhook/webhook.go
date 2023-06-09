@@ -11,14 +11,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-
-	"github.com/caraml-dev/dap-secret-webhook/client"
-	"github.com/caraml-dev/dap-secret-webhook/webhook"
 
 	"github.com/spf13/cobra"
 
+	"github.com/caraml-dev/dap-secret-webhook/client"
 	"github.com/caraml-dev/dap-secret-webhook/config"
+	"github.com/caraml-dev/dap-secret-webhook/webhook"
 	mlp "github.com/caraml-dev/mlp/api/client"
 	"github.com/caraml-dev/mlp/api/log"
 	"github.com/caraml-dev/mlp/api/pkg/auth"
@@ -29,7 +27,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 var CmdWebhook = &cobra.Command{
@@ -46,26 +43,14 @@ func init() {
 	utilruntime.Must(v1.AddToScheme(admissionScheme))
 }
 
-func initK8Client(incluster bool) (*kubernetes.Clientset, error) {
+func initK8Client() (*kubernetes.Clientset, error) {
 
 	var config *rest.Config
 	var err error
 
-	if incluster {
-		config, err = rest.InClusterConfig()
-		if err != nil {
-			return nil, fmt.Errorf("failed to create client: %v", err)
-		}
-	} else {
-		kubeconfigPath := os.Getenv("KUBECONFIG")
-		if kubeconfigPath == "" {
-			// If KUBECONFIG is not set, use the default kubeconfig path
-			kubeconfigPath = clientcmd.RecommendedHomeFile
-		}
-		config, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create client: %v", err)
-		}
+	config, err = rest.InClusterConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create client: %v", err)
 	}
 
 	// Create a new Kubernetes clientset
@@ -182,7 +167,7 @@ func run(cmd *cobra.Command, args []string) {
 		panic(err)
 	}
 
-	k8sClient, err := initK8Client(cfg.InCluster)
+	k8sClient, err := initK8Client()
 	if err != nil {
 		panic(err)
 	}
@@ -198,7 +183,7 @@ func run(cmd *cobra.Command, args []string) {
 		Addr:      fmt.Sprintf(":%d", cfg.WebhookConfig.ServicePort),
 		TLSConfig: configTLS(cfg.TLSConfig.ServerCertFile, cfg.TLSConfig.ServerKeyFile),
 	}
-	log.Infof("listening")
+	log.Infof("listening at port: %v", cfg.WebhookConfig.ServicePort)
 	err = server.ListenAndServeTLS("", "")
 	if err != nil {
 		panic(err)

@@ -153,7 +153,7 @@ func TestMutatingWebhookConfig(t *testing.T) {
 		ServicePort: 8080,
 		MutatePath:  "/test",
 	}
-	certPath := "../test/mutate/dummy.txt"
+	certPath := "../test/mutate/dummy_ca.cert"
 	// any file
 	output, err := generateMutatingWebhookConfig(config, certPath)
 	assert.NoError(t, err)

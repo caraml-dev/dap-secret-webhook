@@ -8,8 +8,6 @@ type Config struct {
 	TLSConfig     TLSConfig     `envconfig:"TLS"`
 	MLPConfig     MLPConfig     `envconfig:"MLP"`
 	WebhookConfig WebhookConfig `envconfig:"WEBHOOK"`
-	//InCluster flag is used to init k8 client using rest.InClusterConfig or not
-	InCluster bool `envconfig:"INCLUSTER" default:"true"`
 }
 
 // TLSConfig holds the file path of the required certs to create the Webhook Config and Server

@@ -50,7 +50,6 @@ func TestInitConfigEnv(t *testing.T) {
 					ServicePort:      443,
 					MutatePath:       "/mutate",
 				},
-				InCluster: true,
 			},
 			expectedErr: nil,
 		},
@@ -68,7 +67,6 @@ func TestInitConfigEnv(t *testing.T) {
 				"WEBHOOK_SERVICE_NAMESPACE": "default",
 				"WEBHOOK_SERVICE_PORT":      "8080",
 				"WEBHOOK_MUTATE_PATH":       "/m",
-				"INCLUSTER":                 "false",
 			},
 			want: &Config{
 				TLSConfig: TLSConfig{
@@ -88,7 +86,6 @@ func TestInitConfigEnv(t *testing.T) {
 					ServicePort:      8080,
 					MutatePath:       "/m",
 				},
-				InCluster: false,
 			},
 			expectedErr: nil,
 		},
