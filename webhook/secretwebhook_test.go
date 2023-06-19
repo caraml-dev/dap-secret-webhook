@@ -1,15 +1,16 @@
 package webhook
 
 import (
-	"github.com/caraml-dev/dap-secret-webhook/config"
-	"github.com/flyteorg/flyteidl/gen/pb-go/flyteidl/core"
-	"github.com/flyteorg/flyteplugins/go/tasks/pluginmachinery/utils/secrets"
-	"github.com/stretchr/testify/assert"
-	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	"net/http"
 	"os"
 	"testing"
 
+	"github.com/flyteorg/flyteidl/gen/pb-go/flyteidl/core"
+	"github.com/flyteorg/flyteplugins/go/tasks/pluginmachinery/utils/secrets"
+	"github.com/stretchr/testify/assert"
+
 	v1 "k8s.io/api/admission/v1"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -17,6 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
 
+	"github.com/caraml-dev/dap-secret-webhook/config"
 	"github.com/caraml-dev/dap-secret-webhook/test/mocks"
 )
 
@@ -106,6 +108,7 @@ func TestMutate(t *testing.T) {
 			resp: &v1.AdmissionResponse{
 				Allowed: false,
 				Result: &metav1.Status{
+					Code:    http.StatusMethodNotAllowed,
 					Message: "unsupported operation on pod",
 				},
 			},
@@ -126,6 +129,7 @@ func TestMutate(t *testing.T) {
 			resp: &v1.AdmissionResponse{
 				Allowed: false,
 				Result: &metav1.Status{
+					Code:    http.StatusBadRequest,
 					Message: `webhook require secretkey to be set. Secret: [group:"TestGroup" mount_requirement:ENV_VAR ]`,
 				},
 			},
