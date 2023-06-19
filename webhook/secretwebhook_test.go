@@ -129,7 +129,7 @@ func TestMutate(t *testing.T) {
 			resp: &v1.AdmissionResponse{
 				Allowed: false,
 				Result: &metav1.Status{
-					Code:    http.StatusBadRequest,
+					Code:    http.StatusInternalServerError,
 					Message: `webhook require secretkey to be set. Secret: [group:"TestGroup" mount_requirement:ENV_VAR ]`,
 				},
 			},
