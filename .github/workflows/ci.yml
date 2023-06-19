@@ -158,7 +158,8 @@ jobs:
           
           # create webhook
           kubectl apply -f .github/e2e/webhook.yaml
-          kubectl wait pod -l app=dap-secret-webhook -n flyte  --for condition=Ready --timeout=5m
+          sleep 10
+          kubectl wait pod -l app=dap-secret-webhook -n flyte --for condition=Ready --timeout=5m
 
       - if: steps.setup.outcome == 'failure' && always()
         name: "Debug Setup Failure"
