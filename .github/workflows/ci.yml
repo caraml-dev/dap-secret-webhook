@@ -136,7 +136,7 @@ jobs:
           curl -v \
             --header 'Content-Type: application/json' \
             --request POST \
-            --data '{"name": "{{ .Release.Namespace }}","team": "myteam","stream": "mystream"}' \
+            --data '{"name": "testgroup","team": "myteam","stream": "mystream"}' \
             ${MLP_API_HOST}/v1/projects
 
           curl -v \
