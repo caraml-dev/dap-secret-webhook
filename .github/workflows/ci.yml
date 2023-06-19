@@ -96,7 +96,7 @@ jobs:
         id: deploy
         run: |
           helm repo add caraml https://caraml-dev.github.io/helm-charts
-          helm install mlp caraml/mlp --values=.github/e2e/mlp.yaml --wait --timeout=3m \
+          helm install mlp caraml/mlp --values=.github/e2e/mlp.yaml --wait --timeout=5m \
 
       - if: steps.deploy.outcome == 'failure' && always()
         name: "Debug Deployment Failure"
@@ -133,31 +133,16 @@ jobs:
         run: |
           # Create testgroup project and secret 'testsecretkey'
 
-          tee project.json <<EOF
-          {
-            "name": "testgroup",
-            "team": "myteam",
-            "stream": "mystream"
-          }
-          EOF
-
           curl -v \
             --header 'Content-Type: application/json' \
             --request POST \
-            --data @project.json \
+            --data '{"name": "{{ .Release.Namespace }}","team": "myteam","stream": "mystream"}' \
             ${MLP_API_HOST}/v1/projects
 
-          tee secret.json <<EOF
-          {
-            "Name": "testsecretkey",
-            "Data": "testsecretdata"
-          }
-          EOF
-
           curl -v \
             --header 'Content-Type: application/json' \
             --request POST \
-            --data @secret.json \
+            --data '{"Name": "testsecretkey","Data": "testsecretdata"}' \
             ${MLP_API_HOST}/v1/projects/1/secrets
 
       - name: Setup Webhook
@@ -169,11 +154,26 @@ jobs:
           
           # create TLS secret with job and clean up
           kubectl apply -f .github/e2e/tls-job.yaml
-          kubectl wait job/dap-secret-webhook-certgen -n flyte --for=condition=complete --timeout=3m 
+          kubectl wait job/dap-secret-webhook-certgen -n flyte --for=condition=complete --timeout=5m
           
           # create webhook
           kubectl apply -f .github/e2e/webhook.yaml
-          kubectl wait pod -l app=dap-secret-webhook -n flyte  --for condition=Ready --timeout=3m
+          kubectl wait pod -l app=dap-secret-webhook -n flyte  --for condition=Ready --timeout=5m
+
+      - if: steps.setup.outcome == 'failure' && always()
+        name: "Debug Setup Failure"
+        run: |
+          echo "::group::describe deployment/dap-secret-webhook"
+          kubectl describe deployment -l app=dap-secret-webhook -n flyte
+          echo "::endgroup::"
+          
+          echo "::group::kubernetes events"
+          kubectl get events -n flyte --sort-by='.lastTimestamp'
+          echo "::endgroup::"
+
+          echo "::group::kubernetes pod describe"
+          kubectl describe pod -l app=dap-secret-webhook -n flyte
+          echo "::endgroup::"  
 
       - name: Test Webhook
         id: test
@@ -181,7 +181,7 @@ jobs:
           # create pod with labels and using Secret Group: 'testgroup' and Key: 'testsecretkey'
           kubectl create ns testgroup
           kubectl apply -f .github/e2e/pod.yaml
-          kubectl wait pod pod-with-secret -n testgroup --for condition=Ready --timeout=3m
+          kubectl wait pod pod-with-secret -n testgroup --for condition=Ready --timeout=5m
           
           # verify secret is created with {pod_name} with the secret key and encoded value in data
           created_secret=$(kubectl get secrets -n testgroup pod-with-secret -o jsonpath="{.data}")
