@@ -128,12 +128,12 @@ func (pm *DAPWebhook) mutatePodAndCreateSecret(ar v1.AdmissionReview, pod *corev
 		// Inject Flyte secrets as env var to pod, the secretRef is modified here
 		pod, err = injectFlyteSecretEnvVar(secret, pod)
 		if err != nil {
-			return toAdmissionResponse(http.StatusBadRequest, err)
+			return toAdmissionResponse(http.StatusInternalServerError, err)
 		}
 
 		secretData, err := pm.mlpClient.GetMLPSecretValue(pod.Namespace, secret.Key)
 		if err != nil {
-			return toAdmissionResponse(http.StatusBadRequest, err)
+			return toAdmissionResponse(http.StatusInternalServerError, err)
 		}
 		k8secret.Data[secret.Key] = []byte(secretData)
 	}

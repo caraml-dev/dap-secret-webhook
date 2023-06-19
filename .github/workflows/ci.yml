@@ -123,7 +123,7 @@ jobs:
 
       - name: Publish image to the local registry
         run: |
-          IMAGE_TAG="${{ env.LOCAL_REGISTRY }}/${{ github.repository }}:e2e"
+          IMAGE_TAG="caraml-dev/dap-secret-webhook:e2e"
           docker tag \
             ${{ env.APP_NAME }}:${{ needs.create-version.outputs.version }} \
             ${IMAGE_TAG}

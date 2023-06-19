@@ -12,6 +12,8 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
 	"github.com/caraml-dev/dap-secret-webhook/client"
@@ -39,8 +41,16 @@ var CmdWebhook = &cobra.Command{
 var admissionScheme = runtime.NewScheme()
 var codecs = serializer.NewCodecFactory(admissionScheme)
 
+var webhookErrCount = prometheus.NewCounter(
+	prometheus.CounterOpts{
+		Name: "webhook_err_count",
+		Help: "No of error handled by Webhook",
+	},
+)
+
 func init() {
 	utilruntime.Must(v1.AddToScheme(admissionScheme))
+	prometheus.MustRegister(webhookErrCount)
 }
 
 func initK8Client() (*kubernetes.Clientset, error) {
@@ -121,6 +131,10 @@ func serve(w http.ResponseWriter, r *http.Request, admit admitV1Func) {
 		responseAdmissionReview.Response = admit(*requestedAdmissionReview)
 		responseAdmissionReview.Response.UID = requestedAdmissionReview.Request.UID
 		responseObj = responseAdmissionReview
+
+		if responseAdmissionReview.Response.Result.Code == http.StatusInternalServerError {
+			webhookErrCount.Inc()
+		}
 	default:
 		msg := fmt.Sprintf("Unsupported group version kind: %v", gvk)
 		log.Errorf(msg)
@@ -183,6 +197,7 @@ func run(cmd *cobra.Command, args []string) {
 		Addr:      fmt.Sprintf(":%d", cfg.WebhookConfig.ServicePort),
 		TLSConfig: configTLS(cfg.TLSConfig.ServerCertFile, cfg.TLSConfig.ServerKeyFile),
 	}
+	http.Handle("/metrics", promhttp.Handler())
 	log.Infof("listening at port: %v", cfg.WebhookConfig.ServicePort)
 	err = server.ListenAndServeTLS("", "")
 	if err != nil {
