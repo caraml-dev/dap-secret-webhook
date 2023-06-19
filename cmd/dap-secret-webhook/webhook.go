@@ -132,7 +132,9 @@ func serve(w http.ResponseWriter, r *http.Request, admit admitV1Func) {
 		responseAdmissionReview.Response.UID = requestedAdmissionReview.Request.UID
 		responseObj = responseAdmissionReview
 
-		if responseAdmissionReview.Response.Result.Code == http.StatusInternalServerError {
+		if !responseAdmissionReview.Response.Allowed &&
+			responseAdmissionReview.Response.Result != nil &&
+			responseAdmissionReview.Response.Result.Code == http.StatusInternalServerError {
 			webhookErrCount.Inc()
 		}
 	default:
