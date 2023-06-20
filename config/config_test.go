@@ -39,6 +39,10 @@ func TestInitConfigEnv(t *testing.T) {
 				"MLP_API_HOST":         "",
 			},
 			want: &Config{
+				PrometheusConfig: PrometheusConfig{
+					Enabled: false,
+					Port:    10254,
+				},
 				TLSConfig: TLSConfig{},
 				MLPConfig: MLPConfig{},
 				WebhookConfig: WebhookConfig{
@@ -56,6 +60,8 @@ func TestInitConfigEnv(t *testing.T) {
 		{
 			name: "ok with override",
 			envVars: map[string]string{
+				"PROMETHEUS_ENABLED":        "true",
+				"PROMETHEUS_PORT":           "11111",
 				"TLS_SERVER_CERT_FILE":      "/etc/server-cert.pem",
 				"TLS_SERVER_KEY_FILE":       "/etc/server-key.pem",
 				"TLS_CA_CERT_FILE":          "/etc/ca-cert.pem",
@@ -69,6 +75,10 @@ func TestInitConfigEnv(t *testing.T) {
 				"WEBHOOK_MUTATE_PATH":       "/m",
 			},
 			want: &Config{
+				PrometheusConfig: PrometheusConfig{
+					Enabled: true,
+					Port:    11111,
+				},
 				TLSConfig: TLSConfig{
 					ServerCertFile: "/etc/server-cert.pem",
 					ServerKeyFile:  "/etc/server-key.pem",

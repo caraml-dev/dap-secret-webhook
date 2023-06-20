@@ -7,6 +7,7 @@ import (
 
 	"github.com/antihax/optional"
 
+	"github.com/caraml-dev/dap-secret-webhook/instrumentation"
 	mlp "github.com/caraml-dev/mlp/api/client"
 )
 
@@ -30,22 +31,26 @@ func (m *APIClient) GetMLPSecretValue(project string, secretName string) (string
 
 	mlpProject, err := m.getMLPProject(project)
 	if err != nil {
+		instrumentation.Inc(instrumentation.MLPAPIError)
 		return "", fmt.Errorf("cannot get project from mlp, %v", err.Error())
 	}
 
 	secrets, resp, err := m.SecretApi.V1ProjectsProjectIdSecretsGet(ctx, mlpProject.ID)
 	if err != nil {
+		instrumentation.Inc(instrumentation.MLPAPIError)
 		return "", err
 	}
 	if resp != nil && resp.Body != nil {
 		defer resp.Body.Close()
 	}
 
+	instrumentation.Inc(instrumentation.MLPAPISuccess)
 	for _, mlpSecret := range secrets {
 		if mlpSecret.Name == secretName {
 			return mlpSecret.Data, nil
 		}
 	}
+	instrumentation.Inc(instrumentation.SecretNotFound)
 	return "", fmt.Errorf("cannot find secret '%v' from mlp project '%v'", secretName, project)
 }
 

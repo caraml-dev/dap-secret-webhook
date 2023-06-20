@@ -23,6 +23,7 @@ import (
 
 	"github.com/caraml-dev/dap-secret-webhook/client"
 	"github.com/caraml-dev/dap-secret-webhook/config"
+	"github.com/caraml-dev/dap-secret-webhook/instrumentation"
 	"github.com/caraml-dev/mlp/api/log"
 )
 
@@ -101,6 +102,11 @@ func (pm *DAPWebhook) Mutate(ar v1.AdmissionReview) *v1.AdmissionResponse {
 		log.Errorf("admission err response: %v", string(jsonData))
 	}
 
+	if admissionResponse.Allowed {
+		instrumentation.Inc(instrumentation.WebhookSuccess)
+	} else {
+		instrumentation.Inc(instrumentation.WebhookError)
+	}
 	return admissionResponse
 }
 

@@ -12,16 +12,17 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
 	"github.com/caraml-dev/dap-secret-webhook/client"
 	"github.com/caraml-dev/dap-secret-webhook/config"
+	"github.com/caraml-dev/dap-secret-webhook/instrumentation"
 	"github.com/caraml-dev/dap-secret-webhook/webhook"
 	mlp "github.com/caraml-dev/mlp/api/client"
 	"github.com/caraml-dev/mlp/api/log"
 	"github.com/caraml-dev/mlp/api/pkg/auth"
+	"github.com/caraml-dev/mlp/api/pkg/instrumentation/metrics"
 
 	v1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -41,16 +42,8 @@ var CmdWebhook = &cobra.Command{
 var admissionScheme = runtime.NewScheme()
 var codecs = serializer.NewCodecFactory(admissionScheme)
 
-var webhookErrCount = prometheus.NewCounter(
-	prometheus.CounterOpts{
-		Name: "webhook_err_count",
-		Help: "No of error handled by Webhook",
-	},
-)
-
 func init() {
 	utilruntime.Must(v1.AddToScheme(admissionScheme))
-	prometheus.MustRegister(webhookErrCount)
 }
 
 func initK8Client() (*kubernetes.Clientset, error) {
@@ -132,11 +125,6 @@ func serve(w http.ResponseWriter, r *http.Request, admit admitV1Func) {
 		responseAdmissionReview.Response.UID = requestedAdmissionReview.Request.UID
 		responseObj = responseAdmissionReview
 
-		if !responseAdmissionReview.Response.Allowed &&
-			responseAdmissionReview.Response.Result != nil &&
-			responseAdmissionReview.Response.Result.Code == http.StatusInternalServerError {
-			webhookErrCount.Inc()
-		}
 	default:
 		msg := fmt.Sprintf("Unsupported group version kind: %v", gvk)
 		log.Errorf(msg)
@@ -189,6 +177,16 @@ func run(cmd *cobra.Command, args []string) {
 	}
 	mlpClient := initMLPClient(cfg.MLPConfig.APIHost)
 
+	if cfg.PrometheusConfig.Enabled {
+		if err := metrics.InitPrometheusMetricsCollector(
+			map[metrics.MetricName]metrics.PrometheusGaugeVec{},
+			map[metrics.MetricName]metrics.PrometheusHistogramVec{},
+			instrumentation.GetCounterMetrics(),
+		); err != nil {
+			panic(err)
+		}
+	}
+
 	err = webhook.CreateOrUpdateMutatingWebhookConfig(k8sClient, cfg.WebhookConfig, cfg.TLSConfig.CaCertFile)
 	if err != nil {
 		panic(err)
@@ -199,7 +197,16 @@ func run(cmd *cobra.Command, args []string) {
 		Addr:      fmt.Sprintf(":%d", cfg.WebhookConfig.ServicePort),
 		TLSConfig: configTLS(cfg.TLSConfig.ServerCertFile, cfg.TLSConfig.ServerKeyFile),
 	}
-	http.Handle("/metrics", promhttp.Handler())
+
+	go func() {
+		promServer := http.NewServeMux()
+		promServer.Handle("/metrics", promhttp.Handler())
+		log.Infof("listening at port: %v for prometheus metrics", cfg.WebhookConfig.ServicePort)
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.PrometheusConfig.Port), promServer); err != nil {
+			panic(err)
+		}
+	}()
+
 	log.Infof("listening at port: %v", cfg.WebhookConfig.ServicePort)
 	err = server.ListenAndServeTLS("", "")
 	if err != nil {
