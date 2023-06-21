@@ -1,9 +1,9 @@
 package instrumentation
 
 import (
-	"github.com/caraml-dev/mlp/api/log"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/caraml-dev/mlp/api/log"
 	"github.com/caraml-dev/mlp/api/pkg/instrumentation/metrics"
 )
 
