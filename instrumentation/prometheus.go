@@ -15,68 +15,48 @@ const (
 )
 
 const (
-	SecretNotFound metrics.MetricName = "secret_not_found"
-	MLPAPISuccess  metrics.MetricName = "mlp_call_success"
-	MLPAPIError    metrics.MetricName = "mlp_call_error"
-	WebhookSuccess metrics.MetricName = "webhook_success"
-	WebhookError   metrics.MetricName = "webhook_error"
+	MLPSecretsNotFound   metrics.MetricName = "mlp_secrets_not_found"
+	MLPRequestsTotal     metrics.MetricName = "mlp_requests_total"
+	WebhookRequestsTotal metrics.MetricName = "webhook_requests_total"
 )
 
 func GetCounterMetrics() map[metrics.MetricName]metrics.PrometheusCounterVec {
 
 	var counterMap = map[metrics.MetricName]metrics.PrometheusCounterVec{
-		SecretNotFound: prometheus.NewCounterVec(prometheus.CounterOpts{
+		MLPSecretsNotFound: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace:   Namespace,
 			Subsystem:   Subsystem,
-			Name:        string(SecretNotFound),
+			Name:        string(MLPSecretsNotFound),
 			Help:        "Number of occurrence where user requested secrets is not found in MLP API",
 			ConstLabels: nil,
 		},
-			[]string{},
+			[]string{"project"},
 		),
-		MLPAPISuccess: prometheus.NewCounterVec(prometheus.CounterOpts{
+		MLPRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace:   Namespace,
 			Subsystem:   Subsystem,
-			Name:        string(MLPAPISuccess),
-			Help:        "Number of successful call to MLP API",
+			Name:        string(MLPRequestsTotal),
+			Help:        "Number of call to MLP API",
 			ConstLabels: nil,
 		},
-			[]string{},
+			[]string{"project", "status"},
 		),
-		MLPAPIError: prometheus.NewCounterVec(prometheus.CounterOpts{
+		WebhookRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace:   Namespace,
 			Subsystem:   Subsystem,
-			Name:        string(MLPAPIError),
-			Help:        "Number of failed call to MLP API",
+			Name:        string(WebhookRequestsTotal),
+			Help:        "Number of request processed by Webhook",
 			ConstLabels: nil,
 		},
-			[]string{},
-		),
-		WebhookSuccess: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace:   Namespace,
-			Subsystem:   Subsystem,
-			Name:        string(WebhookSuccess),
-			Help:        "Number of success request processed by Webhook",
-			ConstLabels: nil,
-		},
-			[]string{},
-		),
-		WebhookError: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace:   Namespace,
-			Subsystem:   Subsystem,
-			Name:        string(WebhookSuccess),
-			Help:        "Number of failed request processed by Webhook",
-			ConstLabels: nil,
-		},
-			[]string{},
+			[]string{"project", "status", "operation"},
 		),
 	}
 
 	return counterMap
 }
 
-func Inc(name metrics.MetricName) {
-	if err := metrics.Glob().Inc(name, map[string]string{}); err != nil {
+func Inc(name metrics.MetricName, labels map[string]string) {
+	if err := metrics.Glob().Inc(name, labels); err != nil {
 		log.Warnf("error incrementing metrics counter for %v", name)
 	}
 }

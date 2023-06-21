@@ -9,6 +9,7 @@ import (
 
 	"github.com/caraml-dev/dap-secret-webhook/instrumentation"
 	mlp "github.com/caraml-dev/mlp/api/client"
+	"github.com/caraml-dev/mlp/api/pkg/instrumentation/metrics"
 )
 
 const (
@@ -29,28 +30,34 @@ func (m *APIClient) GetMLPSecretValue(project string, secretName string) (string
 	ctx, cancel := context.WithTimeout(context.Background(), mlpQueryTimeoutSeconds*time.Second)
 	defer cancel()
 
+	var err error
+	defer func(err error) {
+		labels := map[string]string{
+			"project": project,
+			"status":  metrics.GetStatusString(err == nil),
+		}
+		instrumentation.Inc(instrumentation.MLPRequestsTotal, labels)
+	}(err)
+
 	mlpProject, err := m.getMLPProject(project)
 	if err != nil {
-		instrumentation.Inc(instrumentation.MLPAPIError)
 		return "", fmt.Errorf("cannot get project from mlp, %v", err.Error())
 	}
 
 	secrets, resp, err := m.SecretApi.V1ProjectsProjectIdSecretsGet(ctx, mlpProject.ID)
 	if err != nil {
-		instrumentation.Inc(instrumentation.MLPAPIError)
 		return "", err
 	}
 	if resp != nil && resp.Body != nil {
 		defer resp.Body.Close()
 	}
 
-	instrumentation.Inc(instrumentation.MLPAPISuccess)
 	for _, mlpSecret := range secrets {
 		if mlpSecret.Name == secretName {
 			return mlpSecret.Data, nil
 		}
 	}
-	instrumentation.Inc(instrumentation.SecretNotFound)
+	instrumentation.Inc(instrumentation.MLPSecretsNotFound, map[string]string{"project": project})
 	return "", fmt.Errorf("cannot find secret '%v' from mlp project '%v'", secretName, project)
 }
 

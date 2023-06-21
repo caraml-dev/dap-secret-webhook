@@ -185,6 +185,14 @@ func run(cmd *cobra.Command, args []string) {
 		); err != nil {
 			panic(err)
 		}
+		go func() {
+			promServer := http.NewServeMux()
+			promServer.Handle("/metrics", promhttp.Handler())
+			log.Infof("listening at port: %v for prometheus metrics", cfg.PrometheusConfig.Port)
+			if err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.PrometheusConfig.Port), promServer); err != nil {
+				panic(err)
+			}
+		}()
 	}
 
 	err = webhook.CreateOrUpdateMutatingWebhookConfig(k8sClient, cfg.WebhookConfig, cfg.TLSConfig.CaCertFile)
@@ -197,15 +205,6 @@ func run(cmd *cobra.Command, args []string) {
 		Addr:      fmt.Sprintf(":%d", cfg.WebhookConfig.ServicePort),
 		TLSConfig: configTLS(cfg.TLSConfig.ServerCertFile, cfg.TLSConfig.ServerKeyFile),
 	}
-
-	go func() {
-		promServer := http.NewServeMux()
-		promServer.Handle("/metrics", promhttp.Handler())
-		log.Infof("listening at port: %v for prometheus metrics", cfg.WebhookConfig.ServicePort)
-		if err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.PrometheusConfig.Port), promServer); err != nil {
-			panic(err)
-		}
-	}()
 
 	log.Infof("listening at port: %v", cfg.WebhookConfig.ServicePort)
 	err = server.ListenAndServeTLS("", "")

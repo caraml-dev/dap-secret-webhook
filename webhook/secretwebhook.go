@@ -25,6 +25,7 @@ import (
 	"github.com/caraml-dev/dap-secret-webhook/config"
 	"github.com/caraml-dev/dap-secret-webhook/instrumentation"
 	"github.com/caraml-dev/mlp/api/log"
+	"github.com/caraml-dev/mlp/api/pkg/instrumentation/metrics"
 )
 
 type DAPWebhook struct {
@@ -64,6 +65,16 @@ func (pm *DAPWebhook) Mutate(ar v1.AdmissionReview) *v1.AdmissionResponse {
 	var admissionResponse *v1.AdmissionResponse
 	var err error
 
+	defer func(pod *corev1.Pod, response *v1.AdmissionResponse) {
+		status := pod.Namespace != "" && admissionResponse != nil && admissionResponse.Allowed
+		labels := map[string]string{
+			"project":   pod.Namespace,
+			"status":    metrics.GetStatusString(status),
+			"operation": string(ar.Request.Operation),
+		}
+		instrumentation.Inc(instrumentation.WebhookRequestsTotal, labels)
+	}(pod, admissionResponse)
+
 	// Pod details are stored in "Object" for Create and "OldObject" for Delete according to
 	// https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#request
 	if ar.Request.Operation == v1.Create {
@@ -102,11 +113,6 @@ func (pm *DAPWebhook) Mutate(ar v1.AdmissionReview) *v1.AdmissionResponse {
 		log.Errorf("admission err response: %v", string(jsonData))
 	}
 
-	if admissionResponse.Allowed {
-		instrumentation.Inc(instrumentation.WebhookSuccess)
-	} else {
-		instrumentation.Inc(instrumentation.WebhookError)
-	}
 	return admissionResponse
 }
 
