@@ -40,7 +40,7 @@ func TestInitConfigEnv(t *testing.T) {
 			},
 			want: &Config{
 				PrometheusConfig: PrometheusConfig{
-					Enabled: false,
+					Enabled: true,
 					Port:    10254,
 				},
 				TLSConfig: TLSConfig{},
@@ -60,7 +60,7 @@ func TestInitConfigEnv(t *testing.T) {
 		{
 			name: "ok with override",
 			envVars: map[string]string{
-				"PROMETHEUS_ENABLED":        "true",
+				"PROMETHEUS_ENABLED":        "false",
 				"PROMETHEUS_PORT":           "11111",
 				"TLS_SERVER_CERT_FILE":      "/etc/server-cert.pem",
 				"TLS_SERVER_KEY_FILE":       "/etc/server-key.pem",
@@ -76,7 +76,7 @@ func TestInitConfigEnv(t *testing.T) {
 			},
 			want: &Config{
 				PrometheusConfig: PrometheusConfig{
-					Enabled: true,
+					Enabled: false,
 					Port:    11111,
 				},
 				TLSConfig: TLSConfig{

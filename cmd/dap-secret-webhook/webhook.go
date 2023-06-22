@@ -17,13 +17,10 @@ import (
 
 	"github.com/caraml-dev/dap-secret-webhook/client"
 	"github.com/caraml-dev/dap-secret-webhook/config"
-	"github.com/caraml-dev/dap-secret-webhook/instrumentation"
 	"github.com/caraml-dev/dap-secret-webhook/webhook"
 	mlp "github.com/caraml-dev/mlp/api/client"
 	"github.com/caraml-dev/mlp/api/log"
 	"github.com/caraml-dev/mlp/api/pkg/auth"
-	"github.com/caraml-dev/mlp/api/pkg/instrumentation/metrics"
-
 	v1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -178,13 +175,6 @@ func run(cmd *cobra.Command, args []string) {
 	mlpClient := initMLPClient(cfg.MLPConfig.APIHost)
 
 	if cfg.PrometheusConfig.Enabled {
-		if err := metrics.InitPrometheusMetricsCollector(
-			map[metrics.MetricName]metrics.PrometheusGaugeVec{},
-			map[metrics.MetricName]metrics.PrometheusHistogramVec{},
-			instrumentation.GetCounterMetrics(),
-		); err != nil {
-			panic(err)
-		}
 		go func() {
 			promServer := http.NewServeMux()
 			promServer.Handle("/metrics", promhttp.Handler())

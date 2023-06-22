@@ -19,7 +19,7 @@ type TLSConfig struct {
 }
 
 type PrometheusConfig struct {
-	Enabled bool  `split_words:"true" default:"false"`
+	Enabled bool  `split_words:"true" default:"true"`
 	Port    int32 `split_words:"true" default:"10254"`
 }
 

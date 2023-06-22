@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	"github.com/flyteorg/flyteidl/gen/pb-go/flyteidl/core"
 	secretUtils "github.com/flyteorg/flyteplugins/go/tasks/pluginmachinery/utils/secrets"
 	flytewebhook "github.com/flyteorg/flytepropeller/pkg/webhook"
@@ -23,9 +26,17 @@ import (
 
 	"github.com/caraml-dev/dap-secret-webhook/client"
 	"github.com/caraml-dev/dap-secret-webhook/config"
-	"github.com/caraml-dev/dap-secret-webhook/instrumentation"
 	"github.com/caraml-dev/mlp/api/log"
 	"github.com/caraml-dev/mlp/api/pkg/instrumentation/metrics"
+)
+
+const RequestsTotal string = "flyte_dsw_webhook_requests_total"
+
+var RequestsTotalMetrics = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: RequestsTotal,
+	Help: "Number of request processed by Webhook",
+},
+	[]string{"project", "status", "operation"},
 )
 
 type DAPWebhook struct {
@@ -67,12 +78,11 @@ func (pm *DAPWebhook) Mutate(ar v1.AdmissionReview) *v1.AdmissionResponse {
 
 	defer func(pod *corev1.Pod, response *v1.AdmissionResponse) {
 		status := pod.Namespace != "" && admissionResponse != nil && admissionResponse.Allowed
-		labels := map[string]string{
-			"project":   pod.Namespace,
-			"status":    metrics.GetStatusString(status),
-			"operation": string(ar.Request.Operation),
-		}
-		instrumentation.Inc(instrumentation.WebhookRequestsTotal, labels)
+		RequestsTotalMetrics.WithLabelValues(
+			pod.Namespace,
+			metrics.GetStatusString(status),
+			string(ar.Request.Operation),
+		).Inc()
 	}(pod, admissionResponse)
 
 	// Pod details are stored in "Object" for Create and "OldObject" for Delete according to
