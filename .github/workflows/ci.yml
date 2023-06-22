@@ -51,7 +51,7 @@ jobs:
         uses: golangci/golangci-lint-action@v3
         with:
           version: ${{ env.GO_LINT_VERSION }}
-          args: --timeout 3m --verbose
+          args: --timeout 5m --verbose
 
   unit-test:
     runs-on: ubuntu-latest
