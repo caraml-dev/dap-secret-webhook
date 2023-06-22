@@ -5,9 +5,10 @@ import (
 )
 
 type Config struct {
-	TLSConfig     TLSConfig     `envconfig:"TLS"`
-	MLPConfig     MLPConfig     `envconfig:"MLP"`
-	WebhookConfig WebhookConfig `envconfig:"WEBHOOK"`
+	TLSConfig        TLSConfig        `envconfig:"TLS"`
+	MLPConfig        MLPConfig        `envconfig:"MLP"`
+	WebhookConfig    WebhookConfig    `envconfig:"WEBHOOK"`
+	PrometheusConfig PrometheusConfig `envconfig:"PROMETHEUS"`
 }
 
 // TLSConfig holds the file path of the required certs to create the Webhook Config and Server
@@ -15,6 +16,11 @@ type TLSConfig struct {
 	ServerCertFile string `split_words:"true" required:"true"`
 	ServerKeyFile  string `split_words:"true" required:"true"`
 	CaCertFile     string `split_words:"true" required:"true"`
+}
+
+type PrometheusConfig struct {
+	Enabled bool  `split_words:"true" default:"true"`
+	Port    int32 `split_words:"true" default:"10254"`
 }
 
 // WebhookConfig holds the config for the MutatingWebhookConfiguration to be created

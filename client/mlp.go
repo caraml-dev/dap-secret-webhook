@@ -6,8 +6,11 @@ import (
 	"time"
 
 	"github.com/antihax/optional"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	mlp "github.com/caraml-dev/mlp/api/client"
+	"github.com/caraml-dev/mlp/api/pkg/instrumentation/metrics"
 )
 
 const (
@@ -22,11 +25,36 @@ type APIClient struct {
 	mlp.APIClient
 }
 
+const (
+	MLPSecretsNotFound string = "flyte_dsw_mlp_secrets_not_found"
+	MLPRequestsTotal   string = "flyte_dsw_mlp_requests_total"
+)
+
+var MLPSecretsNotFoundMetrics = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: MLPSecretsNotFound,
+	Help: "Number of occurrence where user requested secrets is not found in MLP API",
+},
+	[]string{"project"},
+)
+
+var MLPRequestsTotalMetrics = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: MLPRequestsTotal,
+	Help: "Number of call to MLP API",
+},
+	[]string{"project", "status"},
+)
+
 // GetMLPSecretValue takes in project and secret name and return the secret value/data from mlp client
 func (m *APIClient) GetMLPSecretValue(project string, secretName string) (string, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), mlpQueryTimeoutSeconds*time.Second)
 	defer cancel()
+
+	var err error
+	defer func(err error) {
+		status := metrics.GetStatusString(err == nil)
+		MLPRequestsTotalMetrics.WithLabelValues(project, status).Inc()
+	}(err)
 
 	mlpProject, err := m.getMLPProject(project)
 	if err != nil {
@@ -46,6 +74,7 @@ func (m *APIClient) GetMLPSecretValue(project string, secretName string) (string
 			return mlpSecret.Data, nil
 		}
 	}
+	MLPSecretsNotFoundMetrics.WithLabelValues(project).Inc()
 	return "", fmt.Errorf("cannot find secret '%v' from mlp project '%v'", secretName, project)
 }
 

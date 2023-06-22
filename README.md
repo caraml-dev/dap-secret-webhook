@@ -22,19 +22,22 @@ Reference
 - Environment variables configured
 
 ### Environment Variable
-| Name                      | Default                                    | Description                                                                  |
-|---------------------------|--------------------------------------------|------------------------------------------------------------------------------|
-| TLS_SERVER_CERT_FILE      | -                                          | Server Cert                                                                  |
-| TLS_SERVER_KEY_FILE       | -                                          | Server Key                                                                   |
-| TLS_CA_CERT_FILE          | -                                          | CA Public Cert                                                               |
-| MLP_API_HOST              | -                                          | MLP API Host                                                                 |
-| WEBHOOK_NAME              | dap-secret-webhook                         | Name of the MutatingWebhookConfiguration resource                            |
-| WEBHOOK_NAMESPACE         | flyte                                      | Namespace of the MutatingWebhookConfiguration                                |
-| WEBHOOK_WEBHOOK_NAME      | dap-secret-webhook.flyte.svc.cluster.local | Name of the webhook to call. Needs to be qualified name                      |
-| WEBHOOK_SERVICE_NAME      | dap-secret-webhook                         | Name of the service for the webhook to call when a request fulfill the rules |
-| WEBHOOK_SERVICE_NAMESPACE | flyte                                      | Namespace of the service deployed in cluster                                 |
-| WEBHOOK_SERVICE_PORT      | 443                                        | Port of the service                                                          |
-| WEBHOOK_MUTATE_PATH       | /mutate                                    | Endpoint of the service to call for mutate function                          |
+| Name                      | Default                                    | Description                                                                     |
+|---------------------------|--------------------------------------------|---------------------------------------------------------------------------------|
+| TLS_SERVER_CERT_FILE      | -                                          | Server Cert                                                                     |
+| TLS_SERVER_KEY_FILE       | -                                          | Server Key                                                                      |
+| TLS_CA_CERT_FILE          | -                                          | CA Public Cert                                                                  |
+| MLP_API_HOST              | -                                          | MLP API Host                                                                    |
+| WEBHOOK_NAME              | dap-secret-webhook                         | Name of the MutatingWebhookConfiguration resource                               |
+| WEBHOOK_NAMESPACE         | flyte                                      | Namespace of the MutatingWebhookConfiguration                                   |
+| WEBHOOK_WEBHOOK_NAME      | dap-secret-webhook.flyte.svc.cluster.local | Name of the webhook to call. Needs to be qualified name                         |
+| WEBHOOK_SERVICE_NAME      | dap-secret-webhook                         | Name of the service for the webhook to call when a request fulfill the rules    |
+| WEBHOOK_SERVICE_NAMESPACE | flyte                                      | Namespace of the service deployed in cluster                                    |
+| WEBHOOK_SERVICE_PORT      | 443                                        | Port of the service                                                             |
+| WEBHOOK_MUTATE_PATH       | /mutate                                    | Endpoint of the service to call for mutate function                             |
+| PROMETHEUS_ENABLED        | false                                      | Flag to enable Prometheus for metrics collection                                |
+| PROMETHEUS_PORT           | 10254                                      | Prometheus metrics endpoint, default to 10254 to be similar as Flyte components |
+
 
 ### Folder Structure
     .        

@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
 	"github.com/caraml-dev/dap-secret-webhook/client"
@@ -20,7 +21,6 @@ import (
 	mlp "github.com/caraml-dev/mlp/api/client"
 	"github.com/caraml-dev/mlp/api/log"
 	"github.com/caraml-dev/mlp/api/pkg/auth"
-
 	v1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -121,6 +121,7 @@ func serve(w http.ResponseWriter, r *http.Request, admit admitV1Func) {
 		responseAdmissionReview.Response = admit(*requestedAdmissionReview)
 		responseAdmissionReview.Response.UID = requestedAdmissionReview.Request.UID
 		responseObj = responseAdmissionReview
+
 	default:
 		msg := fmt.Sprintf("Unsupported group version kind: %v", gvk)
 		log.Errorf(msg)
@@ -173,6 +174,17 @@ func run(cmd *cobra.Command, args []string) {
 	}
 	mlpClient := initMLPClient(cfg.MLPConfig.APIHost)
 
+	if cfg.PrometheusConfig.Enabled {
+		go func() {
+			promServer := http.NewServeMux()
+			promServer.Handle("/metrics", promhttp.Handler())
+			log.Infof("listening at port: %v for prometheus metrics", cfg.PrometheusConfig.Port)
+			if err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.PrometheusConfig.Port), promServer); err != nil {
+				panic(err)
+			}
+		}()
+	}
+
 	err = webhook.CreateOrUpdateMutatingWebhookConfig(k8sClient, cfg.WebhookConfig, cfg.TLSConfig.CaCertFile)
 	if err != nil {
 		panic(err)
@@ -183,6 +195,7 @@ func run(cmd *cobra.Command, args []string) {
 		Addr:      fmt.Sprintf(":%d", cfg.WebhookConfig.ServicePort),
 		TLSConfig: configTLS(cfg.TLSConfig.ServerCertFile, cfg.TLSConfig.ServerKeyFile),
 	}
+
 	log.Infof("listening at port: %v", cfg.WebhookConfig.ServicePort)
 	err = server.ListenAndServeTLS("", "")
 	if err != nil {

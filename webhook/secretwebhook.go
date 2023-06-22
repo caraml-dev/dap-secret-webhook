@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/flyteorg/flyteidl/gen/pb-go/flyteidl/core"
 	secretUtils "github.com/flyteorg/flyteplugins/go/tasks/pluginmachinery/utils/secrets"
@@ -23,6 +27,16 @@ import (
 	"github.com/caraml-dev/dap-secret-webhook/client"
 	"github.com/caraml-dev/dap-secret-webhook/config"
 	"github.com/caraml-dev/mlp/api/log"
+	"github.com/caraml-dev/mlp/api/pkg/instrumentation/metrics"
+)
+
+const RequestsTotal string = "flyte_dsw_webhook_requests_total"
+
+var RequestsTotalMetrics = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: RequestsTotal,
+	Help: "Number of request processed by Webhook",
+},
+	[]string{"project", "status", "operation"},
 )
 
 type DAPWebhook struct {
@@ -62,12 +76,21 @@ func (pm *DAPWebhook) Mutate(ar v1.AdmissionReview) *v1.AdmissionResponse {
 	var admissionResponse *v1.AdmissionResponse
 	var err error
 
+	defer func(pod *corev1.Pod, response *v1.AdmissionResponse) {
+		status := pod.Namespace != "" && admissionResponse != nil && admissionResponse.Allowed
+		RequestsTotalMetrics.WithLabelValues(
+			pod.Namespace,
+			metrics.GetStatusString(status),
+			string(ar.Request.Operation),
+		).Inc()
+	}(pod, admissionResponse)
+
 	// Pod details are stored in "Object" for Create and "OldObject" for Delete according to
 	// https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#request
 	if ar.Request.Operation == v1.Create {
 		_, _, err := pm.decoder.Decode(ar.Request.Object.Raw, nil, pod)
 		if err != nil {
-			admissionResponse = toV1AdmissionResponse(err)
+			admissionResponse = toAdmissionResponse(http.StatusBadRequest, err)
 		} else {
 			log.Infof("received create request for pod: '%v' in namespace: '%v'", pod.Name, pod.Namespace)
 			admissionResponse = pm.mutatePodAndCreateSecret(ar, pod)
@@ -75,7 +98,7 @@ func (pm *DAPWebhook) Mutate(ar v1.AdmissionReview) *v1.AdmissionResponse {
 	} else if ar.Request.Operation == v1.Delete {
 		_, _, err = pm.decoder.Decode(ar.Request.OldObject.Raw, nil, pod)
 		if err != nil {
-			admissionResponse = toV1AdmissionResponse(err)
+			admissionResponse = toAdmissionResponse(http.StatusBadRequest, err)
 		} else {
 			log.Infof("received delete request for pod: '%v' in namespace: '%v'", pod.Name, pod.Namespace)
 			admissionResponse = pm.deleteSecret(ar, pod)
@@ -83,19 +106,19 @@ func (pm *DAPWebhook) Mutate(ar v1.AdmissionReview) *v1.AdmissionResponse {
 	} else {
 		// should never come into this block, by the webhook config's rule
 		err = fmt.Errorf("unsupported operation on pod")
-		admissionResponse = toV1AdmissionResponse(err)
+		admissionResponse = toAdmissionResponse(http.StatusMethodNotAllowed, err)
 	}
 
 	// Log request and response when admission is blocked when there is error
 	if !admissionResponse.Allowed {
 		jsonData, err := json.Marshal(ar)
 		if err != nil {
-			return toV1AdmissionResponse(err)
+			admissionResponse = toAdmissionResponse(http.StatusInternalServerError, err)
 		}
 		log.Errorf("fail to handle request: %v", string(jsonData))
 		jsonData, err = json.Marshal(admissionResponse)
 		if err != nil {
-			return toV1AdmissionResponse(err)
+			admissionResponse = toAdmissionResponse(http.StatusInternalServerError, err)
 		}
 		log.Errorf("admission err response: %v", string(jsonData))
 	}
@@ -108,7 +131,7 @@ func (pm *DAPWebhook) mutatePodAndCreateSecret(ar v1.AdmissionReview, pod *corev
 	// get Flyte Secrets from annotation that are injected by Flyte Propeller
 	secrets, err := secretUtils.UnmarshalStringMapToSecrets(pod.GetAnnotations())
 	if err != nil {
-		return toV1AdmissionResponse(err)
+		return toAdmissionResponse(http.StatusInternalServerError, err)
 	}
 
 	// k8 secret to be created for the Flyte Task, name of secret will be pod name
@@ -127,12 +150,12 @@ func (pm *DAPWebhook) mutatePodAndCreateSecret(ar v1.AdmissionReview, pod *corev
 		// Inject Flyte secrets as env var to pod, the secretRef is modified here
 		pod, err = injectFlyteSecretEnvVar(secret, pod)
 		if err != nil {
-			return toV1AdmissionResponse(err)
+			return toAdmissionResponse(http.StatusInternalServerError, err)
 		}
 
 		secretData, err := pm.mlpClient.GetMLPSecretValue(pod.Namespace, secret.Key)
 		if err != nil {
-			return toV1AdmissionResponse(err)
+			return toAdmissionResponse(http.StatusInternalServerError, err)
 		}
 		k8secret.Data[secret.Key] = []byte(secretData)
 	}
@@ -141,19 +164,19 @@ func (pm *DAPWebhook) mutatePodAndCreateSecret(ar v1.AdmissionReview, pod *corev
 
 	err = createK8Secret(pm.k8sClientSet, k8secret)
 	if err != nil {
-		return toV1AdmissionResponse(err)
+		return toAdmissionResponse(http.StatusInternalServerError, err)
 	}
 
 	marshalled, err := json.Marshal(pod)
 	if err != nil {
-		return toV1AdmissionResponse(err)
+		return toAdmissionResponse(http.StatusInternalServerError, err)
 	}
 
 	response := admission.PatchResponseFromRaw(ar.Request.Object.Raw, marshalled)
 	adminResponse := &response.AdmissionResponse
 	adminResponse.Patch, err = json.Marshal(response.Patches)
 	if err != nil {
-		return toV1AdmissionResponse(err)
+		return toAdmissionResponse(http.StatusInternalServerError, err)
 	}
 	return adminResponse
 }
@@ -162,18 +185,15 @@ func (pm *DAPWebhook) mutatePodAndCreateSecret(ar v1.AdmissionReview, pod *corev
 func (pm *DAPWebhook) deleteSecret(_ v1.AdmissionReview, pod *corev1.Pod) *v1.AdmissionResponse {
 	// the secrets are created with podName in the same namespace
 	if err := deleteK8Secret(pm.k8sClientSet, pod.Namespace, pod.Name); err != nil {
-		return toV1AdmissionResponse(err)
+		return toAdmissionResponse(http.StatusInternalServerError, err)
 	}
 	return &v1.AdmissionResponse{Allowed: true}
 }
 
-// toV1AdmissionResponse return an AdmissionResponse with the error. "allowed" is set to false by default
-func toV1AdmissionResponse(err error) *v1.AdmissionResponse {
-	return &v1.AdmissionResponse{
-		Result: &metav1.Status{
-			Message: err.Error(),
-		},
-	}
+// toAdmissionResponse return an AdmissionResponse with the error.
+func toAdmissionResponse(code int32, err error) *v1.AdmissionResponse {
+	ar := admission.Errored(code, err).AdmissionResponse
+	return &ar
 }
 
 // injectFlyteSecretEnvVar inject secret as env var onto pod using flyte library which holds the convention
